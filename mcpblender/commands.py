@@ -158,10 +158,69 @@ class Named(Model):
     name: Name
 
 
+class MeshInspection(Named):
+    evaluated: bool = True
+    sample_limit: int = Field(default=16, ge=0, le=256)
+
+
+class BevelSettings(Model):
+    type: Literal["BEVEL"] = "BEVEL"
+    width: FiniteFloat = Field(default=0.1, ge=0)
+    segments: int = Field(default=2, ge=1, le=16)
+    limit_method: Literal["NONE", "ANGLE", "WEIGHT"] = "ANGLE"
+    angle_limit: FiniteFloat = Field(default=0.523599, ge=0, le=3.141593)
+
+
+class SubdivisionSettings(Model):
+    type: Literal["SUBSURF"] = "SUBSURF"
+    subdivision_type: Literal["CATMULL_CLARK", "SIMPLE"] = "CATMULL_CLARK"
+    levels: int = Field(default=1, ge=0, le=4)
+    render_levels: int = Field(default=2, ge=0, le=4)
+
+
+class DecimateSettings(Model):
+    type: Literal["DECIMATE"] = "DECIMATE"
+    ratio: FiniteFloat = Field(default=0.5, gt=0, le=1)
+    use_collapse_triangulate: bool = False
+
+
+class SolidifySettings(Model):
+    type: Literal["SOLIDIFY"] = "SOLIDIFY"
+    thickness: FiniteFloat = 0.01
+    offset: FiniteFloat = Field(default=-1, ge=-1, le=1)
+    use_even_offset: bool = True
+
+
+class TriangulateSettings(Model):
+    type: Literal["TRIANGULATE"] = "TRIANGULATE"
+    quad_method: Literal["BEAUTY", "FIXED", "FIXED_ALTERNATE", "SHORTEST_DIAGONAL", "LONGEST_DIAGONAL"] = "BEAUTY"
+    ngon_method: Literal["BEAUTY", "CLIP"] = "BEAUTY"
+
+
+class Modifier(Named):
+    modifier: Name
+    settings: Annotated[BevelSettings | SubdivisionSettings | DecimateSettings | SolidifySettings | TriangulateSettings,
+                        Field(discriminator="type")]
+    show_viewport: bool = True
+    show_render: bool = True
+
+
+class ModifierReference(Named):
+    modifier: Name
+
+
+class ApplyModifier(ModifierReference):
+    make_single_user: bool = False
+
+
 EDIT = ("allow_scene_edit",)
 SNAPSHOT = ("allow_snapshots",)
 # model, capability flags, tool description
 COMMANDS = {
+    "inspect_mesh": (MeshInspection, (), "Inspect base or evaluated mesh topology, UVs, world bounds and sampled vertices at the current frame; does not change the scene."),
+    "configure_modifier": (Modifier, EDIT, "Create/update a named bevel, subdivision, decimation, solidify or triangulation modifier using typed settings. Existing modifier type must match."),
+    "apply_modifier": (ApplyModifier, EDIT, "Destructively apply a named modifier. Shared mesh data requires make_single_user=true. Object mode required."),
+    "remove_modifier": (ModifierReference, EDIT, "Remove a named modifier without applying it."),
     "get_capabilities": (Empty, (), "Discover Blender domains, structured commands, engines and video codec support."),
     "inspect_resources": (Empty, (), "Inspect materials, shader nodes, packed textures, actions, render settings and VSE strips."),
     "create_primitive": (Primitive, EDIT, "Create a named mesh primitive with location and scale."),

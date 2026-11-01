@@ -216,6 +216,36 @@ are reported with `success=false`; changes before the exception remain. Captured
 Python stdout/stderr are capped at 128,000 characters each. Native Blender output
 goes to the Blender log. The bridge bounds JSON messages to 8 MiB.
 
+## Structured asset editing
+
+Asset tools accept a typed `params` object, support `wait=false` and `request_id`,
+and work when `allow_code_execution=false`. Editing requires `allow_scene_edit`;
+`inspect_mesh` remains available to read-only clients.
+
+- `inspect_mesh`: base or evaluated viewport geometry at the current frame, world
+  bounds, triangle counts, boundary/non-manifold edges, degenerate faces, UV bounds
+  and zero-area UV faces. Vertex samples are bounded (0–256); a geometry digest
+  helps compare poses. The digest covers world vertices and polygon connectivity,
+  not materials or UVs. This is not a self-intersection or UV-overlap test.
+- `configure_modifier`: create/update a named `BEVEL`, `SUBSURF`, `DECIMATE`,
+  `SOLIDIFY` or `TRIANGULATE` modifier with typed settings. Other stack entries
+  remain intact. Settings include defaults; an update replaces the supported
+  settings for that modifier. Angles are radians, distances are Blender units.
+- `apply_modifier` / `remove_modifier`: explicitly bake or discard a stack entry.
+  Baking shared mesh data requires `make_single_user=true`; shape-key meshes are
+  refused. Applying a later stack entry follows Blender's native stack behavior.
+
+Asset mesh tools require Object mode; operator-based edits also require a visible,
+selectable target in the current view layer. They restore object selection and
+active object. Linked/overridden mesh editing is refused. Operations do not provide
+rollback; inspect the scene after a failure.
+
+Example `configure_modifier` arguments:
+
+```json
+{"params":{"name":"Prop","modifier":"SoftEdges","settings":{"type":"BEVEL","width":0.05,"segments":3}}}
+```
+
 ## Blender to Godot
 
 Use Blender for modeling, materials, UVs, rigging and animation; export selected

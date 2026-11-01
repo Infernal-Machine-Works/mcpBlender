@@ -4,11 +4,13 @@ from pathlib import Path
 
 import bpy
 from mathutils import Vector
+from . import assets
 
 COMMANDS = {"get_capabilities", "inspect_resources", "create_primitive", "create_mesh",
             "configure_material", "assign_material", "configure_light", "configure_camera",
             "set_keyframes", "configure_render", "render_animation", "render_video",
             "vse_add_strip", "vse_edit_strip", "vse_remove_strip", "vse_list"}
+COMMANDS.update(assets.COMMANDS)
 
 
 def strips(editor):
@@ -33,6 +35,8 @@ def curves(action, slot):
 
 
 def dispatch(command, p):
+    if command in assets.COMMANDS:
+        return assets.dispatch(command, p)
     from .bridge import object_info
     scene = bpy.context.scene
     if command == "get_capabilities":

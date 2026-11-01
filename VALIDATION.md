@@ -1,5 +1,15 @@
 # Local validation: 0.2.0
 
+## Structured asset additions
+
+`MCPBLENDER_TEST_BLENDER=1 python3 -m pytest -q tests/test_asset_contracts.py tests/test_asset_editing.py`
+passed **3 tests** on the installed Blender 5.0.1. A disposable stdio client had
+Python execution disabled. It verified base/evaluated cube geometry and world
+bounds, bevel baking, all five structured modifier types, removal, missing/type
+errors, selection preservation and boundary detection on an open triangle.
+Contract tests reject arbitrary modifier properties and excessive subdivision;
+read-only policy tests check discovery and direct submission denial.
+
 2026-11-01, FreeBSD, installed Blender 5.0.1, Python 3.11, FastMCP 4.0.3.
 Blender was not rebuilt and its installed files/preferences were not changed.
 Permanent deployment and consuming-agent configuration remain deferred.
