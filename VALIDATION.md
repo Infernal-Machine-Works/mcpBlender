@@ -16,6 +16,19 @@ render was opened and visually inspected. Evidence: `/tmp/mb-shaders-20261101/`.
 This qualifies the installed Blender 5.0.1 surface, not arbitrary imported node
 groups, animated shader graphs, every supported node combination or Godot shaders.
 
+## Latest complete regression
+
+On 2026-11-01, after the installation-driven recovery and splash changes:
+
+```sh
+MCPBLENDER_TEST_BLENDER=1 python3 -m pytest -q --tb=short --maxfail=1
+```
+
+**85 tests passed in 543.02 seconds**, with the existing host Starlette/AnyIO
+deprecation warning. This run includes the new startup/recovery contention
+regressions and the earlier modeling, shader, animation, video, retention and
+interruption checks. The installed service was independently exercised as below.
+
 ## Permanent installation and recovery qualification
 
 On 2026-11-01, the standard sdist and wheel build passed with dependency checks

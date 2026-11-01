@@ -16,14 +16,19 @@ keys were found. The long credential literal in the building workflow is a
 deliberately public loopback fixture value, not a production credential. This is
 a source review and pattern scan, not proof that every possible secret is absent.
 
-**History still needs cleanup before making this repository public.** Older
-revisions of `tests/test_server.py` contain a private absolute checkout path;
-older README revisions contain the expanded internal client name. A corrective
-commit removes those details from current source but does not erase history.
-Keep the existing repository private until deciding whether to rewrite that
-history or publish a separately reviewed clean snapshot. Existing local history
-was preserved. Git author identities and timestamps also remain publication
-metadata; the explicitly requested distribution name remains unchanged.
+**The local publication history on `master` has been cleaned.** Older test
+revisions now use a generic example checkout path, and README revisions use PQC.
+The rewrite preserved all 33 feature commits, their authors/dates/messages and
+the exact final tree. The original history was retained in a private bundle
+outside the checkout. The public-history scan covers only `master`: old remote
+tracking refs, reflogs and the backup are intentionally private and must not be
+published. Git author identities and timestamps remain publication metadata;
+the explicitly requested distribution name remains unchanged.
+
+An existing remote `master` still points to the earlier history. Replacing it
+requires explicit authorization for a non-fast-forward update and a lease tied
+to its verified tip. Push only `master`, without tags or private backup refs.
+History replacement does not erase copies previously fetched elsewhere.
 
 Actual server/client configuration, issued credentials, configuration backups,
 host service settings, runtime environments, logs, evidence and models are kept
