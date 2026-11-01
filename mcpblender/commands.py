@@ -213,10 +213,21 @@ class ApplyModifier(ModifierReference):
     make_single_user: bool = False
 
 
+class UVProjection(Named):
+    uv_map: Name = "UVMap"
+    method: Literal["SMART", "CUBE"] = "SMART"
+    overwrite: bool = False
+    make_single_user: bool = False
+    angle_limit_degrees: FiniteFloat = Field(default=66, gt=0, le=89)
+    island_margin: FiniteFloat = Field(default=0.02, ge=0, le=1)
+    cube_size: FiniteFloat = Field(default=1, gt=0)
+
+
 EDIT = ("allow_scene_edit",)
 SNAPSHOT = ("allow_snapshots",)
 # model, capability flags, tool description
 COMMANDS = {
+    "generate_uv": (UVProjection, EDIT, "Project every face into a named UV map using SMART or CUBE projection. Existing maps require overwrite=true; shared mesh edits require make_single_user=true. Angles are degrees."),
     "inspect_mesh": (MeshInspection, (), "Inspect base or evaluated mesh topology, UVs, world bounds and sampled vertices at the current frame; does not change the scene."),
     "configure_modifier": (Modifier, EDIT, "Create/update a named bevel, subdivision, decimation, solidify or triangulation modifier using typed settings. Existing modifier type must match."),
     "apply_modifier": (ApplyModifier, EDIT, "Destructively apply a named modifier. Shared mesh data requires make_single_user=true. Object mode required."),

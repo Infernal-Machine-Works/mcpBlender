@@ -234,6 +234,11 @@ and work when `allow_code_execution=false`. Editing requires `allow_scene_edit`;
 - `apply_modifier` / `remove_modifier`: explicitly bake or discard a stack entry.
   Baking shared mesh data requires `make_single_user=true`; shape-key meshes are
   refused. Applying a later stack entry follows Blender's native stack behavior.
+- `generate_uv`: SMART island projection or CUBE projection of all faces into a
+  named map (`uv_map`, default `UVMap`). Existing coordinates require
+  `overwrite=true`; shared meshes require `make_single_user=true`. SMART accepts
+  `angle_limit_degrees` and `island_margin`; CUBE accepts `cube_size`. The target
+  UV map becomes active. Inspect UV bounds and zero-area faces with `inspect_mesh`.
 
 Asset mesh tools require Object mode; operator-based edits also require a visible,
 selectable target in the current view layer. They restore object selection and

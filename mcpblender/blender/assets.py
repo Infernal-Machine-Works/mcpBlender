@@ -7,7 +7,7 @@ import struct
 import bmesh
 import bpy
 
-COMMANDS = {"inspect_mesh", "configure_modifier", "apply_modifier", "remove_modifier"}
+COMMANDS = {"inspect_mesh", "configure_modifier", "apply_modifier", "remove_modifier", "generate_uv"}
 MODIFIER_FIELDS = {
     "BEVEL": ("width", "segments", "limit_method", "angle_limit"),
     "SUBSURF": ("subdivision_type", "levels", "render_levels"),
@@ -124,6 +124,8 @@ def dispatch(command, p):
     if command == "inspect_mesh":
         return inspect_mesh(p)
     obj = mesh_object(p["name"], edit=True)
+    if command == "generate_uv":
+        return generate_uv(obj, p)
     mod = obj.modifiers.get(p["modifier"])
     if command == "configure_modifier":
         settings = p["settings"]
@@ -154,3 +156,36 @@ def dispatch(command, p):
             finished(bpy.ops.object.modifier_apply(modifier=mod.name))
         return inspect_mesh({"name": obj.name, "evaluated": False})
     raise ValueError(f"Unsupported asset command: {command}")
+
+
+def generate_uv(obj, p):
+    if not obj.data.polygons:
+        raise ValueError("UV projection requires polygon faces")
+    existing = obj.data.uv_layers.get(p.get("uv_map", "UVMap"))
+    if existing and not p.get("overwrite", False):
+        raise ValueError("UV map already exists; pass overwrite=true to replace its coordinates")
+    if obj.data.users > 1 and not p.get("make_single_user", False):
+        raise ValueError("Mesh data is shared; pass make_single_user=true to isolate this object")
+    with active_object(obj):
+        if obj.data.users > 1:
+            obj.data = obj.data.copy()
+        mesh = obj.data
+        layer = mesh.uv_layers.get(p.get("uv_map", "UVMap")) or mesh.uv_layers.new(name=p.get("uv_map", "UVMap"))
+        mesh.uv_layers.active = layer
+        flags = [[item.select for item in collection] for collection in (mesh.vertices, mesh.edges, mesh.polygons)]
+        try:
+            finished(bpy.ops.object.mode_set(mode="EDIT"))
+            finished(bpy.ops.mesh.select_all(action="SELECT"))
+            if p.get("method", "SMART") == "SMART":
+                finished(bpy.ops.uv.smart_project(angle_limit=math.radians(p.get("angle_limit_degrees", 66)),
+                    island_margin=p.get("island_margin", .02), correct_aspect=False, scale_to_bounds=True))
+            else:
+                finished(bpy.ops.uv.cube_project(cube_size=p.get("cube_size", 1), correct_aspect=False,
+                                               clip_to_bounds=False, scale_to_bounds=True))
+        finally:
+            if obj.mode != "OBJECT":
+                bpy.ops.object.mode_set(mode="OBJECT")
+            for collection, values in zip((mesh.vertices, mesh.edges, mesh.polygons), flags):
+                for item, selected in zip(collection, values):
+                    item.select = selected
+    return inspect_mesh({"name": obj.name, "evaluated": False})

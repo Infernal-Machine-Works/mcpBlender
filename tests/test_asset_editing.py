@@ -96,3 +96,32 @@ def test_evaluated_mesh_and_modifier_lifecycle(assets_live):
             assert not triangle["uv_layers"]
 
     asyncio.run(run())
+
+
+def test_uv_projection_and_overwrite_protection(assets_live):
+    _, path = assets_live
+
+    async def run():
+        async with client_for(path) as client:
+            await tool(client, "create_mesh", name="UVPanel", vertices=[[0, 0, 0], [2, 0, 0], [2, 1, 0], [0, 1, 0]], faces=[[0, 1, 2, 3]])
+            before = await tool(client, "inspect_mesh", name="UVPanel", evaluated=False)
+            projected = await tool(client, "generate_uv", name="UVPanel", uv_map="GameUV")
+            assert projected["geometry_sha256"] == before["geometry_sha256"]
+            assert projected["uv_layers"][0]["name"] == "GameUV"
+            assert projected["uv_layers"][0]["zero_area_faces"] == 0
+            assert projected["uv_layers"][0]["non_finite_loops"] == 0
+            bounds = projected["uv_layers"][0]["bounds"]
+            assert all(-1e-6 <= v <= 1.000001 for v in bounds["min"] + bounds["max"])
+            with pytest.raises(ToolError, match="already exists"):
+                await tool(client, "generate_uv", name="UVPanel", uv_map="GameUV")
+            cube = await tool(client, "generate_uv", name="UVPanel", uv_map="GameUV", overwrite=True, method="CUBE")
+            assert cube["uv_layers"][0]["zero_area_faces"] == 0
+            await tool(client, "generate_uv", name="UVPanel", uv_map="SecondUV")
+            assert len((await tool(client, "inspect_mesh", name="UVPanel"))["uv_layers"]) == 2
+            await client.call_tool("save_blend", {"path": "uv-panel.blend"})
+            await client.call_tool("open_blend", {"path": "uv-panel.blend"})
+            reopened = await tool(client, "inspect_mesh", name="UVPanel")
+            assert [layer["name"] for layer in reopened["uv_layers"]] == ["GameUV", "SecondUV"]
+            assert all(layer["zero_area_faces"] == 0 for layer in reopened["uv_layers"])
+
+    asyncio.run(run())
