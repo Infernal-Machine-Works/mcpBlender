@@ -143,20 +143,28 @@ class Broker:
                     if life.get("recovery_attempts", 0) >= life.get("max_recovery_attempts", 3):
                         life["error"] = "Automatic recovery attempt limit reached; explicit start is required"
                         continue
-                    env = dict(os.environ, **life.get("bridge_env", {}))
-                    checkpoint = life.get("checkpoint_path")
-                    if checkpoint and Path(checkpoint).is_file():
-                        env["MCPBLENDER_RECOVER"] = checkpoint
-                    else:
-                        env.pop("MCPBLENDER_RECOVER", None)
-                    fd = os.open(life["log_path"], os.O_CREAT | os.O_WRONLY | os.O_APPEND, 0o600)
-                    with os.fdopen(fd, "ab") as log:
-                        child = subprocess.Popen(life["args"], env=env, stdin=subprocess.DEVNULL,
-                                                 stdout=log, stderr=log, start_new_session=True)
-                    self.children.append(child)
-                    life.update(last_pid=child.pid, recovery_attempts=life.get("recovery_attempts", 0) + 1,
-                                last_recovery_at=time.time(), recovered_from=checkpoint, error=None)
-                    self.persist_lifecycle()
+                    with open(self.path.parent / "launch.lock", "a") as launch_lock:
+                        os.chmod(launch_lock.name, 0o600)
+                        try:
+                            # Never wait while holding the journal lock: the
+                            # frontend holding launch.lock may be asking us for status.
+                            fcntl.flock(launch_lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                        except BlockingIOError:
+                            continue
+                        env = dict(os.environ, **life.get("bridge_env", {}))
+                        checkpoint = life.get("checkpoint_path")
+                        if checkpoint and Path(checkpoint).is_file():
+                            env["MCPBLENDER_RECOVER"] = checkpoint
+                        else:
+                            env.pop("MCPBLENDER_RECOVER", None)
+                        fd = os.open(life["log_path"], os.O_CREAT | os.O_WRONLY | os.O_APPEND, 0o600)
+                        with os.fdopen(fd, "ab") as log:
+                            child = subprocess.Popen(life["args"], env=env, stdin=subprocess.DEVNULL,
+                                                     stdout=log, stderr=log, start_new_session=True)
+                        self.children.append(child)
+                        life.update(last_pid=child.pid, recovery_attempts=life.get("recovery_attempts", 0) + 1,
+                                    last_recovery_at=time.time(), recovered_from=checkpoint, error=None)
+                        self.persist_lifecycle()
                 except Exception as exc:
                     self.lifecycle["error"] = f"{type(exc).__name__}: application recovery failed"
 
@@ -227,7 +235,7 @@ class Broker:
                 return dict(self.worker or {}, protocol=2, connected=self.worker is not None,
                             broker_pid=os.getpid(), broker_epoch=self.epoch,
                             storage=snapshot(self.path.parent),
-                            recovery={key: self.lifecycle.get(key) for key in ("auto_recover", "desired_running", "recovery_attempts", "checkpoint_path", "recovered_from", "error")},
+                            recovery={key: self.lifecycle.get(key) for key in ("auto_recover", "desired_running", "last_pid", "recovery_attempts", "checkpoint_path", "recovered_from", "error")},
                             active_operation=busy[0] if busy else None,
                             queued_operations=db.execute("SELECT count(*) FROM operations WHERE state='queued'").fetchone()[0])
             if command == "register_worker":

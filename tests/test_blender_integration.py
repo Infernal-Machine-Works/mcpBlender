@@ -334,12 +334,13 @@ def test_automatic_checkpoint_recovery_bridge_reconnect_and_graceful_shutdown(li
             assert result.get("progress")
             launcher.process.terminate()
             launcher.process.wait(timeout=15)
-            for _ in range(300):
-                recovered = (await client.call_tool("bridge_status")).data["bridge"]
-                if recovered["connected"] and recovered.get("pid") != before["pid"]:
-                    break
-                await asyncio.sleep(.1)
+            # A real client can query during recovery startup, before worker
+            # registration. It must attach or launch under the shared lock,
+            # rather than racing the supervisor into a duplicate process.
+            await client.call_tool("get_scene_info")
+            recovered = (await client.call_tool("bridge_status")).data["bridge"]
             assert recovered["connected"] and recovered["pid"] != before["pid"]
+            assert recovered["recovery"]["last_pid"] == recovered["pid"]
             assert recovered["recovered_from"] == checkpoint["checkpoint_path"]
             marker = (await client.call_tool("get_object_info", {"name": "RecoveryMarker"})).data
             assert marker["location"] == [4, 5, 6]

@@ -14,7 +14,7 @@ from pathlib import Path
 
 from .config import Config
 from .wire import call, private_directory
-from .broker import ensure_broker
+from .broker import ensure_broker, process_alive
 
 
 class Launcher:
@@ -23,6 +23,28 @@ class Launcher:
         self.process: subprocess.Popen | None = None
         self.lock = threading.Lock()
         self.frontend_managed = False
+
+    def _wait_for_pid(self, path, pid, started, log):
+        deadline = time.monotonic() + self.config.launch.startup_timeout_seconds
+        while time.monotonic() < deadline:
+            if self.process and self.process.pid == pid:
+                exited = self.process.poll() is not None
+            else:
+                exited = not process_alive(pid)
+            if exited:
+                raise RuntimeError(f"Blender exited during startup; inspect {log}")
+            try:
+                status = call(path, "status", timeout=0.5)
+            except (OSError, RuntimeError):
+                time.sleep(0.1)
+                continue
+            if not status.get("connected"):
+                time.sleep(0.1)
+                continue
+            if status["pid"] != pid:
+                raise RuntimeError("Socket belongs to a different Blender process")
+            return {"started": started, "status": status, "log_path": str(log)}
+        raise RuntimeError(f"Blender startup timed out; process may still start. Inspect {log}")
 
     def shutdown(self):
         """Opt-in frontend-owned shutdown: preserve a checkpoint before quitting."""
@@ -53,9 +75,15 @@ class Launcher:
                 broker = ensure_broker(path, python=sys.executable)
                 if broker["connected"]:
                     return {"started": False, "status": broker}
+                log = Path(config.launch.log_path).expanduser()
+                # Recovery can have spawned Blender before it registers. All
+                # launchers share this lock with the supervisor; wait for that
+                # live PID instead of creating another application instance.
+                pending_pid = broker.get("recovery", {}).get("last_pid")
+                if pending_pid and process_alive(pending_pid):
+                    return self._wait_for_pid(path, pending_pid, False, log)
                 if self.process and self.process.poll() is None:
                     raise RuntimeError("Previously launched Blender is still starting; inspect its log")
-                log = Path(config.launch.log_path).expanduser()
                 log.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
                 args = [config.launch.executable, "--disable-autoexec"]
                 use_background = config.launch.background if background is None else background
@@ -88,19 +116,4 @@ class Launcher:
                     "frontend_pid": os.getpid(),
                     "shutdown_on_exit": self.frontend_managed and config.launch.shutdown_on_exit,
                 }}, timeout=5)
-                deadline = time.monotonic() + config.launch.startup_timeout_seconds
-                while time.monotonic() < deadline:
-                    if self.process.poll() is not None:
-                        raise RuntimeError(f"Blender exited with {self.process.returncode}; inspect {log}")
-                    try:
-                        status = call(path, "status", timeout=0.5)
-                    except (OSError, RuntimeError):
-                        time.sleep(0.1)
-                        continue
-                    if not status.get("connected"):
-                        time.sleep(0.1)
-                        continue
-                    if status["pid"] != self.process.pid:
-                        raise RuntimeError("Socket belongs to a different Blender process")
-                    return {"started": True, "status": status, "log_path": str(log)}
-                raise RuntimeError(f"Blender startup timed out; process may still start. Inspect {log}")
+                return self._wait_for_pid(path, self.process.pid, True, log)
