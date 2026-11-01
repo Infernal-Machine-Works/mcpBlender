@@ -87,7 +87,6 @@ then render with camera `Studio_Camera`. Resource-name collisions are refused
 before editing; setup errors remove resources created by the shim and restore the
 previous active camera. This action requires scene-edit permission.
 
-The action engine also supports operator-defined JSON recipes.
 `game_asset_prepare` takes `objects` (up to 16 meshes) and an optional
 `triangle_budget`. Its default plan only preflights and reports evaluated geometry,
 UVs, material slots, transforms and budget warnings. This remains discoverable to
@@ -103,6 +102,37 @@ rig/morph delivery tools for those. Reports are advisory and do not certify Godo
 compatibility, texture fidelity or collision suitability. Optional steps require
 their own permissions; `describe_action` lists possible and required commands.
 
+`animation_preview` takes `frame_start`, `frame_end`, an optional fresh output
+`directory`, `width`, `height`, `engine`, `camera` and `make_video` (default true).
+By default it renders the current scene animation. Optional `clips` choose temporary
+skeletal or morph actions, for example:
+
+```json
+{"frame_start": 1, "frame_end": 24, "camera": "Studio_Camera",
+ "clips": [{"kind": "SKELETAL", "name": "Rig", "clip": "Walk"},
+           {"kind": "MORPH", "name": "Body", "clip": "Walk"}]}
+```
+
+Each target accepts an optional `slot` for imported actions with ambiguous slots.
+Clip selection follows the existing rig/morph restrictions (no constraints,
+drivers or active NLA blending). The camera is not refitted per frame: allow room
+for motion. The shim restores original clips/slots, pose, morph weights, frame and
+subframe, camera and render settings on success, failure and cooperative
+cancellation. PNG rendering bypasses the user's VSE timeline; MP4 assembly uses a
+temporary VSE scene which is then removed. Existing scene contents and compositor
+remain relevant to rendered frames. Video requires FFmpeg support, even dimensions
+and consecutive frames; `make_video=false` allows a `frame_step` greater than one.
+
+Outputs are `frame-*.png`, `manifest.json` and optional `preview.mp4` inside the new
+directory. Operation results expose video/manifest and sample-frame artifacts;
+failure/cancellation reports include available partial frames. The storage estimate
+covers both PNGs and video, with free-space reporting during progress. Existing
+directories are refused. Files remain after failure/cancellation; restoration does
+not imply rollback after a process crash. Encoding retains native Blender blocking
+and cancellation limits. Snapshot permission is required; a recovery checkpoint
+may be saved before rendering a dirty scene, using the ordinary render policy.
+
+The action engine also supports operator-defined JSON recipes.
 Add `"action_files": ["actions.json"]` to the server
 configuration; relative paths resolve beside that configuration file. Restart
 the MCP frontend after changing a recipe. For example:

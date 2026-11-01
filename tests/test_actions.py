@@ -150,3 +150,21 @@ def test_game_asset_optional_permissions_and_paths(tmp_path):
         "triangulate": True, "apply_rotation_scale": True, "export_path": "prop.glb", "save_path": "prop.blend"}, "edits")
     assert len(plan["steps"]) == 8
     assert plan["steps"][-1]["params"]["path"].endswith("/library/prop.glb")
+
+
+def test_animation_preview_plan_storage_and_permissions(tmp_path):
+    config = configured(tmp_path)
+    _, state = build_server(config)
+    plan = state.compile_action("animation_preview", {"frame_start": 1, "frame_end": 3, "directory": "preview"}, "render")
+    params = plan["steps"][0]["params"]
+    assert params["path"].endswith("/library/preview/preview.mp4")
+    assert not Path(params["directory"]).exists()
+    size, kind = estimate("run_action", plan)
+    assert size > 640 * 360 * 8 * 3
+    for inputs in ({"frame_start": 4, "frame_end": 1}, {"frame_start": 1, "frame_end": 4, "frame_step": 2},
+                   {"frame_start": 1, "frame_end": 3, "width": 65}):
+        with pytest.raises(ValueError):
+            state.compile_action("animation_preview", inputs, "invalid")
+    config.stdio.allow_snapshots = False
+    with pytest.raises(PermissionError):
+        state.compile_action("animation_preview", {"frame_start": 1, "frame_end": 3}, "denied")

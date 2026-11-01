@@ -140,8 +140,11 @@ class State:
             params["path"] = str(self.library_path(params.get("path", f"artifacts/{stable}{extension}"), write=True))
             if Path(params["path"]).suffix.lower() != extension:
                 raise ValueError(f"Output must end in {extension}")
-        if command == "render_animation":
+        if command in ("render_animation", "render_animation_preview"):
             params["directory"] = str(self.library_path(params.get("directory", f"artifacts/{stable}"), write=True))
+            if command == "render_animation_preview" and params["make_video"]:
+                # The validated sequence directory must remain absent until worker admission.
+                params["path"] = str(Path(params["directory"]) / "preview.mp4")
         if command in ("open_blend", "import_asset", "save_blend", "export_glb", "export_objects_glb"):
             params["path"] = str(self.library_path(params["path"], write=command in ("save_blend", "export_glb", "export_objects_glb")))
             extension = {"save_blend": ".blend", "open_blend": ".blend", "export_glb": ".glb", "export_objects_glb": ".glb"}.get(command)
@@ -323,7 +326,7 @@ def build_server(config: Config):
 
     def domain_tool(command):
         model, _, description = COMMANDS[command]
-        default_wait = command not in ("render_animation", "render_video", "download_asset", "upload_asset", "request_asset_api")
+        default_wait = command not in ("render_animation", "render_video", "render_animation_preview", "download_asset", "upload_asset", "request_asset_api")
 
         async def operation(params=None, wait: bool = default_wait, request_id: str | None = None) -> dict:
             values = params.model_dump(exclude_none=True) if params is not None else {}

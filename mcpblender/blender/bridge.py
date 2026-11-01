@@ -347,7 +347,7 @@ class BridgeServer:
         try:
             if self.pending:
                 reads = {"get_scene_info", "get_object_info", "inspect_mesh", "inspect_shape_keys", "inspect_morph_animation", "sample_morph_animation", "inspect_rig", "inspect_animation", "sample_animation", "get_capabilities", "inspect_resources", "vse_list", "checkpoint", "shutdown_blender", "capture_viewport", "render_still", "render_animation", "render_video"}
-                reads.update({"asset_report", "preflight_game_asset"})
+                reads.update({"asset_report", "preflight_game_asset", "render_animation_preview"})
                 mutates = self.active["command"] not in reads
                 if self.active["command"] == "run_action":
                     mutates = any(step["command"] not in reads for step in self.active["params"]["steps"])
@@ -373,7 +373,10 @@ class BridgeServer:
                 self.cancel_requested = False
                 if self.active:
                     try:
-                        if self.active["command"] in ("render_still", "render_animation", "render_video") and bpy.data.is_dirty:
+                        render_commands = {"render_still", "render_animation", "render_video", "render_animation_preview"}
+                        renders = self.active["command"] in render_commands or (self.active["command"] == "run_action" and
+                            any(s["command"] in render_commands for s in self.active["params"]["steps"]))
+                        if renders and bpy.data.is_dirty:
                             self.maybe_checkpoint(force=True)
                         result = dispatch(self.active["command"], self.active["params"])
                         if isinstance(result, types.GeneratorType):

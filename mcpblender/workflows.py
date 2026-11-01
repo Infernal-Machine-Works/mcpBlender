@@ -1,5 +1,5 @@
 """Built-in workflow compilers. Emitted commands use ordinary permission checks."""
-from .commands import PreviewSetup, GameAssetPrepare
+from .commands import PreviewSetup, GameAssetPrepare, AnimationPreview
 
 
 def game_asset_plan(values):
@@ -47,3 +47,12 @@ def definitions():
         {"name": "game_asset_prepare", "version": "1", "schema": GameAssetPrepare.model_json_schema(),
          "steps": ["preflight", "before", "optional_transforms_uv_triangulate", "report", "optional_save_export"]},
         required_commands={"preflight_game_asset", "asset_report"})
+    yield Definition("animation_preview", "1",
+        "Render the current scene or temporary skeletal/morph clip choices to PNG frames and optional H.264 video. "
+        "Uses an existing camera; create a preview_setup first if needed. The camera is not refitted during animation. "
+        "Restores clip assignments, pose, weights, frame and render settings; completed files remain on failure/cancel. "
+        "Video uses a temporary VSE scene and does not edit the user's timeline.",
+        AnimationPreview, {"render_animation_preview"},
+        lambda values: {"steps": [{"id": "preview", "command": "render_animation_preview", "params": values}]},
+        {"name": "animation_preview", "version": "1", "schema": AnimationPreview.model_json_schema(),
+         "steps": ["render_animation_preview"]})

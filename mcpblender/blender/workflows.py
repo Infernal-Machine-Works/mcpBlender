@@ -1,12 +1,75 @@
 """Trusted structured workflow shims; no caller-provided Python."""
 import math
+from pathlib import Path
 
 import bpy
 from mathutils import Vector
 
 from . import assets
 
-COMMANDS = {"setup_preview_stage", "asset_report", "preflight_game_asset", "export_objects_glb"}
+COMMANDS = {"setup_preview_stage", "asset_report", "preflight_game_asset", "export_objects_glb", "render_animation_preview"}
+
+
+def render_animation_preview(p):
+    from . import rigging, morphs, domains
+    from .bridge import check_cancelled
+    scene = bpy.context.scene
+    camera = bpy.data.objects.get(p.get("camera")) if p.get("camera") else scene.camera
+    if camera is None or camera.type != "CAMERA" or scene.objects.get(camera.name) is not camera:
+        raise ValueError("Preview requires a camera in the current scene")
+    if Path(p["directory"]).exists():
+        raise FileExistsError("Preview output directory already exists")
+    if p["make_video"] and not bpy.app.build_options.codec_ffmpeg:
+        raise ValueError("This Blender build lacks FFmpeg video support")
+    choices, seen = [], set()
+    # Validate every clip/slot before changing any live animation state.
+    for choice in p["clips"]:
+        module = rigging if choice["kind"] == "SKELETAL" else morphs
+        obj = module.armature_object(choice["name"]) if module is rigging else module.animation_target(choice["name"], edit=False)
+        module.simple_animation(obj if module is rigging else obj.data.shape_keys)
+        data = obj if module is rigging else obj.data.shape_keys
+        if data in seen:
+            raise ValueError("Clip choices must have independent animation data")
+        seen.add(data)
+        action = bpy.data.actions.get(choice["clip"])
+        if action is None:
+            raise ValueError(f"Clip not found: {choice['clip']}")
+        slot = module.action_slot(obj, action, choice.get("slot"))
+        choices.append((module, obj, action, slot, module.animation_snapshot(obj)))
+    original_frame = scene.frame_current, scene.frame_subframe
+    use_sequencer = scene.render.use_sequencer
+    temporary_scene = None
+    try:
+        for module, obj, action, slot, _ in choices:
+            module.assign_action(obj, action, slot)
+        scene.render.use_sequencer = False
+        frames = yield from domains.render_animation(p | {"camera": camera.name})
+        check_cancelled()
+        result = frames | {"restored_state": True, "clips": p["clips"]}
+        if p["make_video"]:
+            temporary_scene = bpy.data.scenes.new("MCP_PreviewEncoding")
+            temporary_scene.render.engine = "BLENDER_WORKBENCH"
+            temporary_scene.render.fps = scene.render.fps
+            temporary_scene.render.fps_base = scene.render.fps_base
+            temporary_scene.view_settings.view_transform = "Standard"
+            editor = domains.strips(temporary_scene.sequence_editor_create())
+            strip = editor.new_image(name="PreviewFrames", filepath=frames["frames"][0], channel=1, frame_start=1)
+            for path in frames["frames"][1:]:
+                strip.elements.append(Path(path).name)
+            strip.frame_final_duration = len(frames["frames"])
+            with bpy.context.temp_override(scene=temporary_scene):
+                video = domains.render_video({"path": p["path"], "width": p["width"], "height": p["height"],
+                                              "frame_start": 1, "frame_end": len(frames["frames"])})
+            result = result | video | {"manifest_path": frames["path"]}
+        return result
+    finally:
+        if temporary_scene is not None:
+            bpy.data.scenes.remove(temporary_scene)
+        scene.render.use_sequencer = use_sequencer
+        for module, obj, _, _, saved in reversed(choices):
+            module.restore_animation(obj, saved)
+        scene.frame_set(original_frame[0], subframe=original_frame[1])
+        bpy.context.view_layer.update()
 
 
 def preflight_game_asset(p):
@@ -160,6 +223,8 @@ def setup_preview_stage(p):
 
 
 def dispatch(command, p):
+    if command == "render_animation_preview":
+        return render_animation_preview(p)
     if command == "setup_preview_stage":
         return setup_preview_stage(p)
     if command == "preflight_game_asset":

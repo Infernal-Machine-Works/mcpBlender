@@ -127,6 +127,27 @@ class Video(Model):
         return self
 
 
+class PreviewClip(Model):
+    kind: Literal["SKELETAL", "MORPH"]
+    name: str = Field(min_length=1, max_length=255)
+    clip: str = Field(min_length=1, max_length=255)
+    slot: str | None = None
+
+
+class AnimationPreview(Animation):
+    clips: list[PreviewClip] = Field(default_factory=list, max_length=16)
+    make_video: bool = True
+
+    @model_validator(mode="after")
+    def valid_preview(self):
+        targets = [(c.kind, c.name) for c in self.clips]
+        if len(targets) != len(set(targets)):
+            raise ValueError("Choose at most one clip per target")
+        if self.make_video and (self.frame_step != 1 or self.width % 2 or self.height % 2):
+            raise ValueError("Video previews require consecutive frames and even dimensions")
+        return self
+
+
 class Strip(Model):
     name: Name
     kind: Literal["IMAGE", "MOVIE", "SOUND", "TEXT"]
@@ -423,6 +444,7 @@ EDIT = ("allow_scene_edit",)
 SNAPSHOT = ("allow_snapshots",)
 # model, capability flags, tool description
 COMMANDS = {
+    "render_animation_preview": (AnimationPreview, SNAPSHOT, "Render PNG frames and optionally an H.264 video using a temporary VSE scene. Optional skeletal/morph clips are temporary; restores live animation/frame/render state even on failure or cooperative cancellation. Existing outputs are refused."),
     "asset_report": (AssetReport, (), "Report evaluated mesh topology, UVs, materials, transforms and total triangle budget. Warnings require review; this is not engine compatibility certification."),
     "preflight_game_asset": (GameAssetPrepare, (), "Check every target for the requested game-asset edits before the action starts editing. No scene changes; later steps can still fail and leave partial edits."),
     "export_objects_glb": (ExportObjects, ("allow_library_write",), "Export explicit objects to GLB, restoring the user's selection afterward. Include the armature explicitly for skinned assets. Does not overwrite by default."),

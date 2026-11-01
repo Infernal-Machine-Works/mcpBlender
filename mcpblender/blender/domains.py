@@ -295,7 +295,7 @@ def render_video(p):
         render.ffmpeg.constant_rate_factor, render.ffmpeg.audio_codec = "MEDIUM", "AAC"
         scene.frame_start, scene.frame_end = p.get("frame_start", scene.frame_start), p.get("frame_end", scene.frame_end)
         bpy.app.handlers.render_write.append(written)
-        result = bpy.ops.render.render(animation=True)
+        result = bpy.ops.render.render(animation=True, scene=scene.name)
         if "FINISHED" not in result or not path.is_file():
             raise RuntimeError("Video render did not produce the requested MP4")
         return {"path": str(path), "frame_count": scene.frame_end - scene.frame_start + 1, "fps": render.fps}

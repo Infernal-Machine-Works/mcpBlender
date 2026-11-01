@@ -29,7 +29,7 @@ def progress(result, value=None):
 
 def partial_output(step):
     directory = step.get("params", {}).get("directory")
-    if step.get("command") == "render_animation" and directory and Path(directory).is_dir():
+    if step.get("command") in {"render_animation", "render_animation_preview"} and directory and Path(directory).is_dir():
         paths = sorted(Path(directory).glob("*.png"))
         return {"directory": directory, "existing_frame_count": len(paths), "existing_frames": [str(p) for p in paths[:16]]}
     return None

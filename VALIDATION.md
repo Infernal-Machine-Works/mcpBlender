@@ -23,6 +23,33 @@ separate read-only frontend runs inspection and budget checks without a recovery
 checkpoint. Unit checks cover optional-step permission denial, path escape and
 duplicate targets. No target-engine compatibility claim follows from these checks.
 
+## Animation-preview workflow
+
+The dedicated real Blender workflow test passed on 2026-11-01 in **22.64 seconds**,
+with Python execution disabled. It creates a textured skinned/morph asset,
+temporarily selects both slots of a combined clip, and renders five changing PNG
+frames plus an H.264 video. Independent ffprobe checks confirm five frames at
+12 fps. Exact inspected geometry, live clips, frame, objects, render settings and
+user VSE strips are restored after success, running cancellation and a deliberately
+introduced encoding-output conflict. Partial-frame artifacts remain available on
+failure/cancellation. Save/reopen preserves geometry, clips, camera/timeline and
+the packed texture. Parsing explicit-object GLB confirms bone and weight channels
+and the embedded texture. First/last PNGs and an extracted encoded video frame were
+opened and visually inspected. Evidence: `/tmp/mb-actions-resume/`.
+
+The complete action group (`tests/test_actions.py tests/test_action_integration.py`)
+passed **18 tests in 77.73 seconds**. The first full regression attempt passed 62
+other tests but had five shared-fixture errors: the initial broker status handshake
+timed out before Blender launched. The action group passed when rerun; the broker
+startup retry is being qualified separately. That attempt is not a full-suite pass.
+
+The add-on archive contains the workflow worker without frontend dependencies.
+A standard `python3 -m build --wheel --no-isolation` was blocked by the host's
+setuptools 63.1.0 (the project declares >=68). An artifact sanity build using
+`--skip-dependency-check` succeeded and its workflow modules were checked. This
+does not qualify the declared build environment; no packages were installed or
+upgraded. All three bundled skills passed the skill-creator validator.
+
 ## Named-action engine milestone
 
 On 2026-11-01, the focused engine and shared-infrastructure checks passed:
