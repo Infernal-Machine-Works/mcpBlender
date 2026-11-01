@@ -10,6 +10,7 @@ build-backend = "setuptools.build_meta"
 name = "mcpBlender-tspspi"
 dynamic = ["version"]
 description = "Authenticated MCP control of live Blender sessions over private Unix sockets"
+readme = "README.md"
 authors = [
     {name = "Thomas Spielauer", email = "pypipackages01@tspi.at"},
 ]
