@@ -1,10 +1,13 @@
 """Real structured asset editing through MCP with arbitrary Python disabled."""
 import asyncio
+import json
 import os
 from pathlib import Path
 import shutil
 import sys
 import tempfile
+import struct
+import zlib
 
 from fastmcp import Client
 from fastmcp.client.transports import StdioTransport
@@ -176,5 +179,75 @@ def test_duplication_parenting_and_applied_transforms(assets_live):
                        keyframes=[{"frame": 1, "value": [0, 0, 0]}, {"frame": 2, "value": [1, 0, 0]}])
             with pytest.raises(ToolError, match="Static"):
                 await tool(client, "apply_transforms", name="IndependentCopy")
+
+    asyncio.run(run())
+
+
+def test_camera_framing_and_textured_asset_delivery(assets_live):
+    root, path = assets_live
+    library = root / "library"
+    library.mkdir(exist_ok=True)
+    # A deterministic test texture; no Blender Python execution tool is used.
+    def chunk(kind, data):
+        return struct.pack("!I", len(data)) + kind + data + struct.pack("!I", zlib.crc32(kind + data) & 0xffffffff)
+    pixels = b"".join(b"\x00" + b"".join(bytes((235, 130, 40) if (x // 2 + y // 2) % 2 else (30, 90, 150)) for x in range(8)) for y in range(8))
+    texture = b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack("!2I5B", 8, 8, 8, 2, 0, 0, 0)) + chunk(b"IDAT", zlib.compress(pixels)) + chunk(b"IEND", b"")
+    (library / "checker.png").write_bytes(texture)
+
+    async def run():
+        async with client_for(path) as client:
+            await tool(client, "create_primitive", name="PreviewCrate", location=[50, 1, 1], scale=[1.5, .75, 1])
+            await tool(client, "apply_transforms", name="PreviewCrate")
+            await tool(client, "configure_modifier", name="PreviewCrate", modifier="CrateEdges", settings={"type": "BEVEL", "width": .08, "segments": 3})
+            await tool(client, "apply_modifier", name="PreviewCrate", modifier="CrateEdges")
+            await tool(client, "generate_uv", name="PreviewCrate", overwrite=True)
+            await tool(client, "configure_material", name="CheckerMaterial", image_path="checker.png", roughness=.6)
+            await tool(client, "assign_material", objects=["PreviewCrate"], material="CheckerMaterial")
+            await tool(client, "configure_render", resolution_x=192, resolution_y=128, samples=4)
+            await tool(client, "configure_camera", name="PreviewCamera")
+            frames = []
+            for view in ("FRONT", "TOP", "ISOMETRIC"):
+                fit = await tool(client, "frame_objects", name="PreviewCamera", objects=["PreviewCrate"], view=view)
+                assert fit["fully_in_frame"], fit
+                frames.append(fit)
+            await tool(client, "configure_camera", name="OrthoCamera", projection="ORTHO")
+            await tool(client, "configure_render", resolution_x=128, resolution_y=192)
+            portrait = await tool(client, "frame_objects", name="PreviewCamera", objects=["PreviewCrate"], direction=[-1, -2, 1])
+            assert portrait["fully_in_frame"], portrait
+            multiple = await tool(client, "frame_objects", name="PreviewCamera", objects=["PreviewCrate", "Cube"])
+            assert multiple["fully_in_frame"], multiple
+            ortho = await tool(client, "frame_objects", name="OrthoCamera", objects=["PreviewCrate"], view="ISOMETRIC")
+            assert ortho["fully_in_frame"] and ortho["camera_type"] == "ORTHO", ortho
+            await tool(client, "configure_light", name="PreviewKey", type="AREA", location=[52, -3, 7], target=[50, 1, 1], energy=800, size=5)
+            await tool(client, "configure_render", resolution_x=192, resolution_y=128)
+            await tool(client, "frame_objects", name="PreviewCamera", objects=["PreviewCrate"])
+            job = (await client.call_tool("submit_operation", {"command": "render_still", "params": {"path": "asset-preview.png", "width": 192, "height": 128, "camera": "PreviewCamera", "engine": "CYCLES"}})).data
+            result = (await client.call_tool("wait_operation", {"operation_id": job["operation_id"], "timeout_seconds": 90})).data
+            assert result["state"] == "succeeded", result
+            assert (library / "asset-preview.png").read_bytes().startswith(b"\x89PNG")
+            before = await tool(client, "inspect_mesh", name="PreviewCrate")
+            await client.call_tool("save_blend", {"path": "asset-editing.blend"})
+            await client.call_tool("open_blend", {"path": "asset-editing.blend"})
+            reopened = await tool(client, "inspect_mesh", name="PreviewCrate")
+            assert before["geometry_sha256"] == reopened["geometry_sha256"]
+            assert reopened["uv_layers"][0]["zero_area_faces"] == 0
+            await client.call_tool("select_objects", {"names": ["PreviewCrate"]})
+            await client.call_tool("export_glb", {"path": "asset-editing.glb"})
+            data = (library / "asset-editing.glb").read_bytes()
+            size = struct.unpack_from("<I", data, 12)[0]
+            gltf = json.loads(data[20:20 + size])
+            assert len(gltf["meshes"]) == 1
+            assert gltf["textures"] and gltf["images"][0]["bufferView"] >= 0
+            assert "TEXCOORD_0" in gltf["meshes"][0]["primitives"][0]["attributes"]
+            await client.call_tool("import_asset", {"path": "asset-editing.glb"})
+            imported = await tool(client, "inspect_mesh", name="PreviewCrate.001")
+            for key in ("min", "max"):
+                assert imported["world_bounds"][key] == pytest.approx(before["world_bounds"][key], abs=1e-4)
+            evidence = {"perspective_fits": frames, "portrait_fit": portrait, "multiple_fit": multiple,
+                        "orthographic_fit": ortho, "source": before, "imported": imported}
+            (library / "asset-evidence.json").write_text(json.dumps(evidence, indent=2))
+            destination = os.environ.get("MCPBLENDER_ASSET_EVIDENCE_DIR")
+            if destination:
+                shutil.copytree(library, destination, dirs_exist_ok=True)
 
     asyncio.run(run())

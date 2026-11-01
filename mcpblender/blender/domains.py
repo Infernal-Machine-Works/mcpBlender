@@ -143,6 +143,10 @@ def dispatch(command, p):
                 obj.data.size = p.get("size", obj.data.size)
         else:
             obj.data.lens = p.get("lens", obj.data.lens)
+            if p.get("projection"):
+                obj.data.type = p["projection"]
+            if p.get("ortho_scale") is not None:
+                obj.data.ortho_scale = p["ortho_scale"]
             if p.get("active", True):
                 scene.camera = obj
         bpy.context.view_layer.update()

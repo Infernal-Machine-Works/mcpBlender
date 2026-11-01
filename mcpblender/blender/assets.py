@@ -10,6 +10,7 @@ from mathutils import Matrix, Vector
 
 COMMANDS = {"inspect_mesh", "configure_modifier", "apply_modifier", "remove_modifier", "generate_uv"}
 COMMANDS.update({"duplicate_object", "set_parent", "apply_transforms"})
+COMMANDS.add("frame_objects")
 MODIFIER_FIELDS = {
     "BEVEL": ("width", "segments", "limit_method", "angle_limit"),
     "SUBSURF": ("subdivision_type", "levels", "render_levels"),
@@ -140,6 +141,8 @@ def inspect_mesh(p):
 def dispatch(command, p):
     if command == "inspect_mesh":
         return inspect_mesh(p)
+    if command == "frame_objects":
+        return frame_objects(p)
     if command in {"duplicate_object", "set_parent", "apply_transforms"}:
         return edit_object(command, p)
     obj = mesh_object(p["name"], edit=True)
@@ -286,3 +289,70 @@ def edit_object(command, p):
             child.matrix_basis = basis
             bpy.context.view_layer.update()
     return object_info(obj, True)
+
+
+def frame_objects(p):
+    from bpy_extras.object_utils import world_to_camera_view
+    from .bridge import object_info
+    camera = local_object(p["name"])
+    if camera.type != "CAMERA" or camera.data.type not in {"PERSP", "ORTHO"}:
+        raise ValueError("Expected an existing perspective or orthographic camera")
+    require_static(camera)
+    if camera.parent or camera.data.users > 1:
+        raise ValueError("Framing requires an unparented camera with independent camera data")
+    animation = camera.data.animation_data
+    if animation and (animation.action or animation.drivers or animation.nla_tracks):
+        raise ValueError("Animated camera data is unsupported for automatic framing")
+    bpy.context.view_layer.update()
+    graph = bpy.context.evaluated_depsgraph_get()
+    points = []
+    for name in dict.fromkeys(p["objects"]):
+        obj = mesh_object(name)
+        if bpy.context.view_layer.objects.get(name) is not obj:
+            raise ValueError(f"Object is outside the current view layer: {name}")
+        evaluated = obj.evaluated_get(graph)
+        if not evaluated.data.vertices:
+            raise ValueError(f"Cannot frame an empty mesh: {name}")
+        points.extend(evaluated.matrix_world @ Vector(corner) for corner in evaluated.bound_box)
+    if not all(math.isfinite(v) for point in points for v in point):
+        raise ValueError("Cannot frame non-finite geometry")
+    low = Vector([min(point[i] for point in points) for i in range(3)])
+    high = Vector([max(point[i] for point in points) for i in range(3)])
+    center = (low + high) / 2
+    radius = max((high - low).length / 2, .001)
+    views = {"FRONT": (0, -1, 0), "BACK": (0, 1, 0), "LEFT": (-1, 0, 0),
+             "RIGHT": (1, 0, 0), "TOP": (0, 0, 1), "BOTTOM": (0, 0, -1), "ISOMETRIC": (1, -1, .75)}
+    direction = Vector(p.get("direction") or views[p.get("view", "ISOMETRIC")]).normalized()
+    camera.rotation_mode = "XYZ"
+    camera.rotation_euler = (-direction).to_track_quat("-Z", "Y").to_euler()
+    camera.location = center + direction * radius * 3
+    bpy.context.view_layer.update()
+    location, ortho_scale = camera.camera_fit_coords(graph, [v for point in points for v in point])
+    margin = p.get("margin", 1.15)
+    if camera.data.type == "ORTHO":
+        camera.data.ortho_scale = max(ortho_scale * margin, .001)
+        camera.location = location + direction * radius
+    else:
+        camera.location = center + (location - center) * margin
+    bpy.context.view_layer.update()
+    scene = bpy.context.scene
+    projected = [world_to_camera_view(scene, camera, point) for point in points]
+    near, far = min(v.z for v in projected), max(v.z for v in projected)
+    if near <= 0:
+        camera.location += direction * (abs(near) + radius)
+        bpy.context.view_layer.update()
+        projected = [world_to_camera_view(scene, camera, point) for point in points]
+        near, far = min(v.z for v in projected), max(v.z for v in projected)
+    camera.data.clip_start = max(.000001, min(camera.data.clip_start, near * .5))
+    camera.data.clip_end = max(camera.data.clip_end, far + radius)
+    if p.get("active", True):
+        scene.camera = camera
+    bounds = {"min": [min(v[i] for v in projected) for i in range(2)],
+              "max": [max(v[i] for v in projected) for i in range(2)]}
+    return object_info(camera, True) | {"objects": p["objects"], "projection_bounds": bounds,
+        "fully_in_frame": near >= camera.data.clip_start and far <= camera.data.clip_end
+            and all(-1e-5 <= v <= 1.00001 for v in bounds["min"] + bounds["max"]),
+        "camera_type": camera.data.type, "ortho_scale": camera.data.ortho_scale,
+        "clip_start": camera.data.clip_start, "clip_end": camera.data.clip_end,
+        "render_size": [scene.render.resolution_x, scene.render.resolution_y],
+        "note": "Fit uses evaluated bounding boxes at the current frame and render aspect; hidden assets are included. Refit after aspect or pose changes."}

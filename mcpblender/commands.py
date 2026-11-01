@@ -66,6 +66,8 @@ class Camera(Model):
     rotation_euler: Vec3 | None = None
     target: Vec3 | None = None
     lens: FiniteFloat = Field(default=50, gt=0)
+    projection: Literal["PERSP", "ORTHO"] | None = None
+    ortho_scale: FiniteFloat | None = Field(default=None, gt=0)
     active: bool = True
 
 
@@ -247,10 +249,25 @@ class ApplyTransforms(Named):
         return self
 
 
+class FrameObjects(Named):
+    objects: list[Name] = Field(min_length=1, max_length=1000)
+    view: Literal["FRONT", "BACK", "LEFT", "RIGHT", "TOP", "BOTTOM", "ISOMETRIC"] = "ISOMETRIC"
+    direction: Vec3 | None = None
+    margin: FiniteFloat = Field(default=1.15, ge=1, le=10)
+    active: bool = True
+
+    @model_validator(mode="after")
+    def nonzero_direction(self):
+        if self.direction is not None and sum(v * v for v in self.direction) < 1e-12:
+            raise ValueError("Camera direction must be nonzero")
+        return self
+
+
 EDIT = ("allow_scene_edit",)
 SNAPSHOT = ("allow_snapshots",)
 # model, capability flags, tool description
 COMMANDS = {
+    "frame_objects": (FrameObjects, EDIT, "Fit an existing perspective/orthographic camera named name to evaluated mesh bounds at the current render aspect ratio. Choose a view preset or direction from asset toward camera. Reports normalized projection bounds; may change clip distances."),
     "duplicate_object": (DuplicateObject, EDIT, "Duplicate a named object into the current collection, with independent mesh/data by default and optional world-space offset. Parent, constraints and animation action references are retained."),
     "set_parent": (ParentObject, EDIT, "Parent an object, or clear its parent when parent is omitted. Preserve world placement by default; rejects cycles and animated/constrained child transforms."),
     "apply_transforms": (ApplyTransforms, EDIT, "Bake chosen static mesh transforms into geometry, preserving child world placement. Rotation and scale default true. Shared meshes require make_single_user=true."),

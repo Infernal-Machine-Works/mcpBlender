@@ -251,6 +251,14 @@ and work when `allow_code_execution=false`. Editing requires `allow_scene_edit`;
   constrained, shape-key or linked/overridden targets are refused; descendants
   must have static transforms and ordinary object parenting. Shared meshes need
   `make_single_user=true`. Modifier parameters are not rescaled automatically.
+- `frame_objects`: fit an existing camera (`name`) to evaluated bounds of named
+  meshes (`objects`). Choose `view` (`FRONT`, `BACK`, `LEFT`, `RIGHT`, `TOP`,
+  `BOTTOM`, `ISOMETRIC`) or a world `direction` from the asset toward the camera;
+  `margin` defaults to 1.15. Fits perspective and orthographic cameras and reports
+  normalized `projection_bounds` and `fully_in_frame`. Use `configure_camera`
+  with `projection="ORTHO"` for an orthographic view. The camera must be static,
+  unparented and have independent data. Fit uses current render aspect and frame;
+  refit after changing them. Clipping distances may expand to accommodate the asset.
 
 Asset mesh tools require Object mode; operator-based edits also require a visible,
 selectable target in the current view layer. They restore object selection and

@@ -2,6 +2,27 @@
 
 ## Structured asset additions
 
+Latest full regression command:
+
+```sh
+MCPBLENDER_TEST_BLENDER=1 MCPBLENDER_ASSET_EVIDENCE_DIR=/tmp/mb-asset-editing-20261101 python3 -m pytest -q
+```
+
+**32 tests passed in 151.53 seconds**, with the same host Starlette/AnyIO
+deprecation warning. Wheel construction also passed, including the new asset
+worker module. The updated design/render skills passed their schema validators.
+
+The Python-disabled asset fixture additionally qualified perspective and
+orthographic camera fits, portrait/landscape aspect ratios, multi-object fits,
+view presets and a custom direction. It created a beveled textured prop through
+structured tools, rendered a CPU preview, saved/reopened the project and exported
+and re-imported a GLB. Independent GLB JSON inspection verified embedded image
+data and UV attributes; re-imported world bounds matched the source. The cleaned
+192x128 preview was opened and visually inspected. Evidence is retained in
+`/tmp/mb-asset-editing-20261101/`: `asset-preview.png`, `asset-editing.blend`,
+`asset-editing.glb` and `asset-evidence.json`. This qualifies static asset editing;
+skeletal deformation and Godot integration remain separate work.
+
 `MCPBLENDER_TEST_BLENDER=1 python3 -m pytest -q tests/test_asset_contracts.py tests/test_asset_editing.py`
 passed **3 tests** on the installed Blender 5.0.1. A disposable stdio client had
 Python execution disabled. It verified base/evaluated cube geometry and world
@@ -24,7 +45,7 @@ and refusal to bake animated object transforms. Python execution remained disabl
 Blender was not rebuilt and its installed files/preferences were not changed.
 Permanent deployment and consuming-agent configuration remain deferred.
 
-## Regression suite
+## Initial 0.2.0 regression baseline
 
 ```sh
 MCPBLENDER_TEST_BLENDER=1 python3 -m pytest -q
