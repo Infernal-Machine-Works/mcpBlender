@@ -16,7 +16,42 @@ render was opened and visually inspected. Evidence: `/tmp/mb-shaders-20261101/`.
 This qualifies the installed Blender 5.0.1 surface, not arbitrary imported node
 groups, animated shader graphs, every supported node combination or Godot shaders.
 
-## Latest complete regression
+## Permanent installation and recovery qualification
+
+On 2026-11-01, the standard sdist and wheel build passed with dependency checks
+enabled in a private Python environment. Installed package imports were checked
+outside the checkout, declared runtime constraints passed, and every installed
+Python module was compared with current source. The environment reuses existing
+host dependencies; no host dependency upgrades or Blender rebuild were performed.
+
+The authenticated loopback FreeBSD service is boot-enabled and supervised.
+Missing/invalid keys returned 401. Separate Codex and PQC credentials discovered
+93 tools; PQC's native HTTP transport queried the shared recovered asset and found
+all three adapted skills. Its configuration validates after backing up and aligning
+stale sample agent model overrides with the instance's already selected models.
+Installed stdio attached to the same GUI/session. Private configurations, keys,
+backups, host service settings and evidence remain outside Git.
+
+Through the installed HTTP endpoint, structured tools created a UV-mapped textured
+asset and preview stage, saved a project, exported GLB, rendered a Cycles image and
+captured a viewport. The rendered image was visually inspected. Service restart
+and supervised frontend exit preserved Blender's PID/session. Broker restart
+preserved Blender and operation history. Killing the owned test application
+restored its checkpoint and asset in a new session without replaying the completed
+render. Evidence is retained privately in the model library.
+
+This installed crash test exposed a duplicate-launch race. The broker supervisor
+and frontends now share a nonblocking launch lock, and a frontend waits for an
+already-starting recovery PID. Ten focused broker/operation tests passed, including
+deterministic contention and pending-worker coverage. The real Blender recovery
+test now immediately queries during recovery rather than waiting for registration;
+it passed in 31.55 seconds. A fresh installed GUI confirmed session-only splash
+suppression. The earlier first launch had its welcome dialog dismissed manually.
+
+Actual reboot/login access, longer-duration service operation, log rotation,
+external HTTPS ingress and Godot integration remain unqualified. Godot is paused.
+
+## Shader and retention regression
 
 On 2026-11-01, FreeBSD Blender 5.0.1:
 
@@ -32,8 +67,8 @@ recovery without replay, structured shader authoring/PBR delivery, and scoped
 temporary-output/history retention. The earlier startup handshake failure described below
 was corrected and this complete run passed. The final wheel and add-on archive
 were checked for current workflow/recovery code; the setuptools build-environment
-limitation below still applies. No permanent installation or client configuration
-was performed.
+limitation below applied at the time of that run. Permanent installation was
+qualified separately afterward, as described above.
 
 ## Retention controls
 

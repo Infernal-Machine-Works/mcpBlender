@@ -1,0 +1,54 @@
+#!/bin/sh
+# PROVIDE: mcpblender
+# REQUIRE: NETWORKING LOGIN
+# KEYWORD: shutdown
+# Install as /usr/local/etc/rc.d/mcpblender; see docs/DEPLOYMENT.md.
+
+. /etc/rc.subr
+
+name=mcpblender
+rcvar=mcpblender_enable
+load_rc_config "$name"
+
+: "${mcpblender_enable:=NO}"
+: "${mcpblender_command:=/usr/local/bin/mcpblender}"
+: "${mcpblender_config:=/usr/local/etc/mcpblender.conf}"
+: "${mcpblender_daemon_user:=${mcpblender_user:-}}"
+# daemon handles dropping privileges; prevent rc.subr switching users as well.
+unset mcpblender_user
+: "${mcpblender_pidfile:=/var/run/mcpblender.pid}"
+: "${mcpblender_log:=/var/log/mcpblender.log}"
+: "${mcpblender_display:=}"
+: "${mcpblender_xauthority:=}"
+: "${mcpblender_path:=/usr/local/bin:/usr/bin:/bin}"
+
+pidfile=$mcpblender_pidfile
+command=/usr/sbin/daemon
+procname=/usr/sbin/daemon
+required_files="$mcpblender_command $mcpblender_config"
+start_cmd=mcpblender_start
+
+mcpblender_start()
+{
+    if [ -z "$mcpblender_daemon_user" ] || [ "$mcpblender_daemon_user" = root ]; then
+        warn "Set mcpblender_daemon_user to the desktop account (never root)"
+        return 1
+    fi
+    if [ -n "$(check_pidfile "$pidfile" "$procname")" ]; then
+        warn "$name is already running"
+        return 1
+    fi
+    if [ ! -x "$mcpblender_command" ] || [ ! -r "$mcpblender_config" ]; then
+        warn "Missing executable or configuration"
+        return 1
+    fi
+    # The supervisor PID, rather than its child, must be stopped to prevent
+    # the restart policy immediately bringing the HTTP server back up.
+    /usr/sbin/daemon -c -f -R 3 -P "$pidfile" -t "$name" \
+        -u "$mcpblender_daemon_user" -o "$mcpblender_log" \
+        /usr/bin/env "DISPLAY=$mcpblender_display" \
+        "XAUTHORITY=$mcpblender_xauthority" "PATH=$mcpblender_path" \
+        "$mcpblender_command" --config "$mcpblender_config" --transport remotehttp
+}
+
+run_rc_command "$1"

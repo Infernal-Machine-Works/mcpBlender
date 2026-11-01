@@ -16,7 +16,7 @@ visualization. Deployment follows qualification of the needed core workflows.
 - Consider background render workers when the GUI must remain responsive. Current
   native rendering occupies Blender while the separate broker remains usable.
 - Qualify more Blender/platform versions; current evidence is FreeBSD Blender 5.0.1.
-- Add explicit journal/artifact archival and retention controls for permanent use.
-  History/output currently remain on disk with live storage reporting.
-- Qualify external HTTPS deployment and install skills/client configuration when
-  permanent deployment is requested.
+- Qualify external HTTPS deployment if public ingress is requested. The local
+  authenticated service and client/skill installation have separate qualification.
+- Verify service startup and graphical access after an actual reboot, and qualify
+  longer-duration operation and log rotation for permanent use.
