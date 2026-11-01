@@ -152,6 +152,14 @@ class State:
                 raise ValueError(f"File must end in {extension}")
         if command == "configure_material" and params.get("image_path"):
             params["image_path"] = str(self.library_path(params["image_path"]))
+        if command in {"configure_shader_graph", "configure_shader_node"}:
+            for node in params["nodes"] if command == "configure_shader_graph" else [params["node"]]:
+                if node.get("image_path"):
+                    node["image_path"] = str(self.library_path(node["image_path"]))
+        if command == "apply_material_preset":
+            for key in ("base_color_texture", "roughness_texture", "metallic_texture", "normal_texture"):
+                if params.get(key):
+                    params[key] = str(self.library_path(params[key]))
         if command == "vse_add_strip":
             params["paths"] = [str(self.library_path(path)) for path in params["paths"]]
         if command == "shutdown_blender" and params.get("save_path"):

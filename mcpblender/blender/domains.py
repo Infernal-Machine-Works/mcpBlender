@@ -9,6 +9,7 @@ from . import rigging
 from . import morphs
 from . import actions
 from . import workflows
+from . import shaders
 
 COMMANDS = {"get_capabilities", "inspect_resources", "create_primitive", "create_mesh",
             "configure_material", "assign_material", "configure_light", "configure_camera",
@@ -19,6 +20,7 @@ COMMANDS.update(rigging.COMMANDS)
 COMMANDS.update(morphs.COMMANDS)
 COMMANDS.update(actions.COMMANDS)
 COMMANDS.update(workflows.COMMANDS)
+COMMANDS.update(shaders.COMMANDS)
 
 
 def strips(editor):
@@ -43,6 +45,8 @@ def curves(action, slot):
 
 
 def dispatch(command, p):
+    if command in shaders.COMMANDS:
+        return shaders.dispatch(command, p)
     if command in workflows.COMMANDS:
         return workflows.dispatch(command, p)
     if command in actions.COMMANDS:

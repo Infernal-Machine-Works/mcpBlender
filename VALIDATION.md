@@ -1,5 +1,21 @@
 # Local validation: 0.2.0
 
+## Structured shaders and material presets
+
+On 2026-11-01, `MCPBLENDER_TEST_BLENDER=1 python3 -m pytest -q
+tests/test_shader_contracts.py tests/test_shaders.py --tb=short` passed **2 tests in
+15.95 seconds**. Unit checks reject executable nodes, nonfinite values, duplicate
+names, path escape and read-only edits without starting Blender. Real Blender
+checks run with Python execution disabled: catalog discovery, procedural noise/ramp
+graphs, invalid replacement with the original graph preserved, incremental node
+and link edits, connection overwrite refusal, and all four material presets.
+The textured PBR preset packs all four maps with appropriate color spaces, renders
+a checker-painted sphere, survives save/reopen, and exports GLB with base-color,
+metallic/roughness and normal texture references verified by JSON parsing. The
+render was opened and visually inspected. Evidence: `/tmp/mb-shaders-20261101/`.
+This qualifies the installed Blender 5.0.1 surface, not arbitrary imported node
+groups, animated shader graphs, every supported node combination or Godot shaders.
+
 ## Latest complete regression
 
 On 2026-11-01, FreeBSD Blender 5.0.1:

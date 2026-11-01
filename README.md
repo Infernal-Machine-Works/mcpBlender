@@ -77,6 +77,32 @@ and separately register the checkout's UI module in the same session.
 
 ## Named actions and local recipes
 
+Structured shader authoring works with Python execution disabled. Use
+`shader_node_catalog` to discover supported node types, installed socket identifiers
+and property choices; `inspect_shader_graph` inspects existing materials, including
+imported node types. Domain-tool arguments go inside `params`.
+
+`configure_shader_graph` creates a complete graph from `material`, `nodes` and
+`links`; replacing an existing material requires `replace=true`. Nodes have a
+unique `name`, supported Blender node `type`, typed input socket values, optional
+properties, and image/color-ramp options. Links name their source/destination node
+and socket. Use identifiers or indexes when socket display names are ambiguous.
+Script nodes and arbitrary RNA properties are excluded. Image paths stay inside
+the caller's library. Socket types/ranges, link destinations and cycles are checked
+on a temporary material before applying changes; rare failures during application
+can still leave partial edits. Animated/driven or linked materials are refused.
+
+For incremental editing, use `configure_shader_node`, `connect_shader_nodes`,
+`disconnect_shader_input` and `remove_shader_node`. Omitted inputs/properties are
+preserved; existing input connections need `replace_existing=true` to replace.
+`apply_material_preset` creates `PBR`, `TEXTURED_PBR`, `GLASS` or `EMISSION` graphs.
+PBR presets accept base-color, roughness, metallic and tangent-space normal maps,
+texture scaling and image packing. Base color uses sRGB; data maps use Non-Color.
+Roughness/metallic maps use their red channel. Existing materials require explicit
+replacement. Assign the result using `assign_material`. These presets provide
+Blender shading; arbitrary procedural graphs and glass need target-engine review
+or baking before delivery. The GLB qualification covers the textured PBR preset.
+
 The built-in `preview_setup` action accepts `objects` (mesh names), an optional
 fresh `prefix`, `view`, `projection`, `margin` and light `strength`. It creates
 persistent key/fill/rim area lights centered on evaluated asset bounds and a fitted
