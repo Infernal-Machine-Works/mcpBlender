@@ -1,4 +1,5 @@
 """Structured skeleton construction, skinning and animation inspection."""
+from contextlib import contextmanager
 import math
 
 import bpy
@@ -203,8 +204,8 @@ def dispatch(command, p):
 def simple_animation(rig):
     animation = rig.animation_data
     if rig.constraints or any(b.constraints for b in rig.pose.bones) or (animation and
-            (animation.drivers or animation.nla_tracks or animation.use_tweak_mode)):
-        raise ValueError("Structured clip tools require a rig without constraints, drivers or NLA tracks")
+            (animation.drivers or any(not t.mute or t.is_solo for t in animation.nla_tracks) or animation.use_tweak_mode)):
+        raise ValueError("Structured clip tools require a rig without constraints, drivers or active NLA tracks")
 
 
 def action_slot(rig, action, identifier=None):
@@ -260,6 +261,7 @@ def assign_action(rig, action, slot=None):
     if slot is not None:
         anim.action_slot = slot
     anim.action_blend_type, anim.action_extrapolation, anim.action_influence = "REPLACE", "HOLD", 1
+    anim.use_nla = False
     reset_pose(rig)
     bpy.context.scene.frame_set(bpy.context.scene.frame_current, subframe=bpy.context.scene.frame_subframe)
 
@@ -410,3 +412,39 @@ def sample_animation(p):
         restore_animation(rig, saved)
     return {"name": rig.name, "clip": action.name if action else None, "samples": samples,
             "restored_frame": saved["frame"], "restored_clip": saved["action"].name if saved["action"] else None}
+
+
+@contextmanager
+def export_managed_clips(selected_only=True):
+    """Expose only each exported rig's managed clips to native ACTIONS export.
+
+    Muted temporary NLA tracks are discovered by glTF without blending into the
+    live pose. Disable native single-armature broadcast separately at export.
+    """
+    objects = list(bpy.context.selected_objects if selected_only else bpy.context.scene.objects)
+    rigs = {o for o in objects if o.type == "ARMATURE"}
+    rigs.update(m.object for o in objects if o.type == "MESH" for m in o.modifiers
+                if m.type == "ARMATURE" and m.object)
+    saved = [(rig, animation_snapshot(rig)) for rig in rigs]
+    tracks = []
+    try:
+        for rig in rigs:
+            existing = {rig.animation_data.action} if rig.animation_data else set()
+            if rig.animation_data:
+                existing.update(s.action for t in rig.animation_data.nla_tracks for s in t.strips)
+            for action in bpy.data.actions:
+                if action.get("mcpblender_target") != rig.name or action in existing:
+                    continue
+                slot = action_slot(rig, action)
+                track = rig.animation_data_create().nla_tracks.new()
+                tracks.append((rig, track))
+                track.name, track.mute = action.name, True
+                strip = track.strips.new(action.name, int(math.floor(action.frame_range[0])), action)
+                if slot is not None:
+                    strip.action_slot = slot
+        yield
+    finally:
+        for rig, track in reversed(tracks):
+            rig.animation_data.nla_tracks.remove(track)
+        for rig, state in saved:
+            restore_animation(rig, state)

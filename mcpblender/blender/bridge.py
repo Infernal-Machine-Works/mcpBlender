@@ -195,16 +195,19 @@ def dispatch(command, params):
             raise RuntimeError(f"Import failed: {result}")
         return {"path": path, "objects": sorted(o.name for o in set(bpy.data.objects) - before)}
     if command == "export_glb":
+        from .rigging import export_managed_clips
         path = params["path"]
         if params.get("selected_only", True) and not bpy.context.selected_objects:
             raise ValueError("No scene objects selected for export")
         if Path(path).exists() and not params.get("overwrite", False):
             raise FileExistsError(path)
-        with gltf_compatibility() as workaround:
+        clips = export_managed_clips(params.get("selected_only", True)) if params.get("animations", True) else contextlib.nullcontext()
+        with gltf_compatibility() as workaround, clips:
             result = bpy.ops.export_scene.gltf(filepath=path, check_existing=False, export_format="GLB",
                                               use_selection=params.get("selected_only", True),
                                               export_draco_mesh_compression_enable=False,
-                                              export_yup=True, export_animations=params.get("animations", True))
+                                              export_yup=True, export_animations=params.get("animations", True),
+                                              export_animation_mode="ACTIONS", export_anim_single_armature=False)
         if "FINISHED" not in result:
             raise RuntimeError(f"Export failed: {result}")
         return {"path": path, "bytes": Path(path).stat().st_size, "format": "GLB",

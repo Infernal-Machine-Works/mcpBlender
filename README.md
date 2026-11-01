@@ -318,7 +318,8 @@ tracks/frames remain, and only touched keys receive the chosen interpolation.
 `set_active_clip` switches clips, resetting unkeyed bone channels to rest to avoid
 leaking the previous pose. Omit `clip` to clear the action and reset pose.
 These clip tools support ordinary skeletal actions without constraints, drivers
-or NLA blending. Authoring rotations requires XYZ bones; imported compatible
+or active NLA blending. Muted NLA stashes created by glTF import are supported;
+selecting a clip disables NLA evaluation for single-action playback. Authoring rotations requires XYZ bones; imported compatible
 skeletal actions can be selected using their `slot` identifier when ambiguous.
 
 `inspect_animation` lists paginated actions/slots and reports channel paths, key
@@ -340,6 +341,14 @@ Use Blender for modeling, materials, UVs, rigging and animation; export selected
 assets with `export_glb`. The initial export uses Blender's glTF exporter, GLB,
 standard glTF +Y up, and uncompressed meshes. Animation export is configurable.
 The exporter does not forcibly apply destructive transforms or modifiers.
+
+Animated exports use native `ACTIONS` mode. Managed clips belonging to each
+exported rig are included through temporary muted NLA tracks, removed afterward;
+the live action, pose and frame are restored. Existing active actions/NLA clips
+remain eligible, but Blender's automatic broadcasting of unrelated actions to a
+single rig is disabled. Select both the rig and its meshes for skeletal delivery.
+This does not select a subset of an existing complex NLA project; inspect its
+actions and tracks before exporting.
 
 Before export, verify object dimensions, scene unit scale, origins, local axes,
 selection, normals, materials and desired animation clips. Keep the editable

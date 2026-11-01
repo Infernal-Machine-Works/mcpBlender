@@ -1,5 +1,19 @@
 # Local validation: 0.2.0
 
+## Latest complete regression
+
+On 2026-11-01, FreeBSD Blender 5.0.1:
+
+```sh
+MCPBLENDER_TEST_BLENDER=1 MCPBLENDER_SKELETAL_EVIDENCE_DIR=/tmp/mb-skeletal-20261101 python3 -m pytest -q
+```
+
+**39 tests passed in 221.96 seconds.** The one warning is the pre-existing host
+Starlette/AnyIO deprecated alias. The wheel built without dependency downloads
+and includes the skeletal worker. Updated animation/design skills passed the
+skill-creator validator. No permanent deployment or consuming-agent installation
+was performed.
+
 ## Skeletal tools additions
 
 `MCPBLENDER_TEST_BLENDER=1 python3 -m pytest -q tests/test_animation_contracts.py tests/test_skeletal_animation.py`
@@ -17,9 +31,35 @@ lower ring, and compared exact geometry digests before/after temporary sampling.
 Switching clips reset unkeyed channels; clearing the action restored rest pose.
 Duplicate names, missing bones and cross-rig managed actions were refused.
 
+Delivery/cancellation addition: the full suite above also covered a textured,
+two-bone segmented mesh with blended skinning, two named clips, five rendered
+preview frames and a 192x192 H.264/AAC MP4. Independent ffprobe inspection confirmed
+five video frames. Beginning and bent-middle PNGs were opened and visually
+inspected. A preview assembled from every other source frame is a motion sample,
+not a timing qualification for the full clip.
+
+The editable project survived save/reopen with matching sampled geometry digests.
+Independent GLB JSON/binary inspection verified exactly the two intended clip
+names, a two-joint skin, normalized exported weights, UVs and an embedded texture.
+Unrelated actions from other test rigs were excluded. The GLB was re-imported;
+both imported clips were selected and sampled through structured tools despite
+their muted NLA stashes. At frames 1, 5 and 9, their evaluated mesh world bounds
+matched the corresponding source clip within 0.0001 Blender units. Export restored
+the source pose and removed its temporary NLA tracks.
+
+A separate detailed-mesh sampler was cancelled while running. Its operation
+became cancelled and the prior frame, clip and exact evaluated geometry digest
+were restored. Python execution remained disabled throughout these workflows.
+
+Evidence is retained under `/tmp/mb-skeletal-20261101/`: `skeletal-animation.blend`,
+`skeletal-animation.glb`, `skeletal-evidence.json`, `rig-preview/` and
+`rig-preview.mp4`. These are small-rig checks: automatic weighting was qualified
+on a one-bone fixture; explicit blending, rigid binding and playback on two bones.
+They do not establish arbitrary character-rig or target-engine correctness.
+
 ## Structured asset additions
 
-Latest full regression command:
+Asset-stage full regression command:
 
 ```sh
 MCPBLENDER_TEST_BLENDER=1 MCPBLENDER_ASSET_EVIDENCE_DIR=/tmp/mb-asset-editing-20261101 python3 -m pytest -q
@@ -140,6 +180,6 @@ Native blocking operations are not forcibly cancellable, and arbitrary Python
 cannot be assigned a reliable storage estimate. Recovery preserves the completed
 checkpoint, not edits after it, and does not imply rollback or power-failure proof.
 
-Skeletal/shape-key animation, physics bakes, other Blender/platform versions,
+Shape-key animation, physics bakes, constraints/drivers/active NLA blending, other Blender/platform versions,
 long-duration workloads, external HTTPS deployment, Godot behavior and real
 external generation services are not qualified by this suite.

@@ -3,12 +3,13 @@
 Primary workflows: animation production; game/simulation asset modeling; model
 visualization. Deployment follows qualification of the needed core workflows.
 
-- Add representative skeletal/shape-key animation and physics-bake fixtures when
-  selected. These are reachable through bpy but are not qualified by the current
-  camera-animation/building fixture.
+- Add representative shape-key animation and physics-bake fixtures when selected.
+  Small skeletal fixtures and structured clip tools are now qualified; see
+  VALIDATION.md for their scope and evidence.
 - Verify GLB import in the resumed Godot project: units, axes, UVs/textures, animation
   clips, shader fidelity and collision needs. Export alone is insufficient.
-- Add evaluated topology, UV and deformation helpers based on real assets.
+- Expand evaluated topology, UV and deformation helpers to more varied assets and
+  larger workloads; the first structured asset/rig workflows are qualified.
 - Qualify concrete external generation/diffusion services when endpoints are chosen.
   Generic authenticated JSON/download/upload adapters are implemented; specific
   vendor and multipart protocols remain separate work.
