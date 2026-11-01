@@ -426,7 +426,12 @@ def ensure_broker(path, python=None):
         while time.monotonic() < deadline:
             try:
                 return call(path, "status", timeout=0.5)
-            except OSError:
+            except (OSError, RuntimeError) as exc:
+                # This is a read-only startup probe. A bound socket can precede
+                # its first response under load; wire.call wraps receive timeout.
+                if isinstance(exc, RuntimeError) and not str(exc).startswith((
+                        "Bridge timed out;", "Bridge disconnected before a complete response")):
+                    raise
                 if process.poll() is not None:
                     raise RuntimeError(f"Operation broker exited; inspect {log_path}")
                 time.sleep(0.05)

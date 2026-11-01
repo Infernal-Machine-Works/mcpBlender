@@ -6,6 +6,7 @@ import json
 import struct
 import zlib
 import subprocess
+import signal
 from pathlib import Path
 import sys
 import tempfile
@@ -41,7 +42,11 @@ def action_live():
             {"id": "fail", "command": "inspect_mesh", "params": {"name": "MissingActionObject"}}])
         many = recipe("custom.many", [{"id": f"step{i}", "command": "create_primitive", "params": {"name": f"ActionPart{i}"}} for i in range(64)])
         many["inputs"] = {}
-        config.action_files = [str(recipe_file(root / "actions.json", [recipe(), failing, many]))]
+        reconnect = recipe("custom.reconnect", [{"id": f"step{i}", "command": "create_primitive", "params": {"name": f"ReconnectPart{i}"}} for i in range(64)])
+        reconnect["inputs"] = {}
+        interrupted = recipe("custom.interrupted", [{"id": f"step{i}", "command": "create_primitive", "params": {"name": f"CrashPart{i}"}} for i in range(64)])
+        interrupted["inputs"] = {}
+        config.action_files = [str(recipe_file(root / "actions.json", [recipe(), failing, many, reconnect, interrupted]))]
         path = root / "config.json"
         write_config(path, config)
         launcher = Launcher(config)
@@ -309,3 +314,66 @@ def test_animation_preview_combined_clips_video_and_restoration(action_live):
                 assert partial["existing_frame_count"] >= 1 and partial["preview_artifacts"]
                 assert await snapshot() == restored
     asyncio.run(run())
+
+
+async def wait_for_action_step(client, identifier):
+    for _ in range(300):
+        operation = (await client.call_tool("get_operation", {"operation_id": identifier})).data
+        if operation.get("progress", {}).get("completed_steps", 0) >= 1:
+            return operation
+        assert operation["state"] not in {"failed", "succeeded"}, operation
+        await asyncio.sleep(.01)
+    pytest.fail("Action did not reach its first completed step")
+
+
+def test_running_action_survives_broker_restart_without_replaying_edits(action_live):
+    _, path, _ = action_live
+
+    async def run():
+        async with client_for(path) as client:
+            before = (await client.call_tool("bridge_status")).data["bridge"]
+            args = {"action": "custom.reconnect", "request_id": "reconnect-once"}
+            queued = (await client.call_tool("run_action", args)).data
+            await wait_for_action_step(client, queued["operation_id"])
+            restarted = (await client.call_tool("restart_bridge")).data
+            assert restarted["broker_epoch"] != before["broker_epoch"]
+            completed = (await client.call_tool("wait_operation", {"operation_id": queued["operation_id"], "timeout_seconds": 60})).data
+            assert completed["state"] == "succeeded", completed
+            assert len(completed["result"]["steps"]) == 64
+            objects = (await client.call_tool("get_scene_info")).data["objects"]
+            assert {o["name"] for o in objects if o["name"].startswith("ReconnectPart")} == {f"ReconnectPart{i}" for i in range(64)}
+            again = (await client.call_tool("run_action", args | {"wait": True})).data
+            assert again["operation_id"] == queued["operation_id"] and again["state"] == "succeeded"
+            assert (await client.call_tool("bridge_status")).data["bridge"]["session_id"] == before["session_id"]
+    asyncio.run(run())
+
+
+def test_application_exit_marks_action_unknown_and_restores_checkpoint_without_replay(action_live):
+    _, path, config = action_live
+    replacement = Launcher(config)
+
+    async def run():
+        async with client_for(path) as client:
+            await client.call_tool("create_primitive", {"params": {"name": "CrashBaseline"}})
+            await client.call_tool("checkpoint", {"params": {}})
+            before = (await client.call_tool("bridge_status")).data["bridge"]
+            args = {"action": "custom.interrupted", "request_id": "crash-once"}
+            queued = (await client.call_tool("run_action", args)).data
+            await wait_for_action_step(client, queued["operation_id"])
+            os.kill(before["pid"], signal.SIGKILL)
+            interrupted = (await client.call_tool("wait_operation", {"operation_id": queued["operation_id"], "timeout_seconds": 15})).data
+            assert interrupted["state"] == "interrupted" and interrupted["outcome_unknown"], interrupted
+            fresh = await asyncio.to_thread(replacement.start)
+            assert fresh["status"]["session_id"] != before["session_id"]
+            objects = (await client.call_tool("get_scene_info")).data["objects"]
+            assert "CrashBaseline" in {o["name"] for o in objects}
+            assert not any(o["name"].startswith("CrashPart") for o in objects)
+            again = (await client.call_tool("run_action", args | {"wait": True})).data
+            assert again["operation_id"] == queued["operation_id"] and again["state"] == "interrupted"
+            assert not any(o["name"].startswith("CrashPart") for o in (await client.call_tool("get_scene_info")).data["objects"])
+    try:
+        asyncio.run(run())
+    finally:
+        if replacement.process and replacement.process.poll() is None:
+            replacement.process.terminate()
+            replacement.process.wait(timeout=15)

@@ -36,7 +36,20 @@ def report_progress(progress):
         policy = _bridge.active.get("storage", {})
         progress = progress | {"storage": snapshot(policy.get("path", _bridge.path.parent),
                                                     reserve_bytes=policy.get("reserve_bytes", 256 * 1024**2))}
-        reply = _bridge.control("progress", operation_id=_bridge.active["operation_id"], progress=progress)
+        for attempt in range(3):
+            try:
+                reply = _bridge.control("progress", operation_id=_bridge.active["operation_id"], progress=progress)
+                break
+            except (OSError, RuntimeError) as exc:
+                if isinstance(exc, RuntimeError) and not str(exc).startswith((
+                        "Bridge timed out;", "Bridge disconnected before a complete response")):
+                    raise
+                if attempt == 2:
+                    raise
+                # Progress updates can safely repeat; scene operations cannot.
+                # Keep the live generator and reconnect without dispatching again.
+                ensure_broker(_bridge.path)
+                _bridge.register()
         _bridge.cancel_requested = reply["cancel_requested"]
 
 

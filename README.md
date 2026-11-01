@@ -183,6 +183,11 @@ Actions have no rollback: a failed or cooperatively cancelled step can leave sce
 edits and files. Native blocking Blender calls retain their existing cancellation
 limits. A frontend reconnect can retrieve the original operation by request ID;
 interrupted operations are not automatically replayed or resumed step by step.
+Live actions also retain their iterator across broker restarts. Transient progress
+connection failures reconnect and retry the progress update with a bounded retry;
+they do not dispatch the scene edit again. Application exit records an unknown
+outcome and restores the last completed checkpoint when recovery is requested.
+Inspect that recovered scene before deciding on a new operation.
 
 ## Configuration
 

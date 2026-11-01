@@ -1,5 +1,23 @@
 # Local validation: 0.2.0
 
+## Latest complete regression
+
+On 2026-11-01, FreeBSD Blender 5.0.1:
+
+```sh
+MCPBLENDER_TEST_BLENDER=1 MCPBLENDER_ACTION_EVIDENCE_DIR=/tmp/mb-actions-resume python3 -m pytest -q --tb=short --maxfail=1
+```
+
+**72 tests passed in 447.14 seconds**, with the existing host Starlette/AnyIO
+deprecation warning. This includes named recipes, all three built-in workflows,
+typed permission/path preflight, real asset/animation delivery, cancellation and
+late-failure restoration, broker restart, application interruption and checkpoint
+recovery without replay. The earlier startup handshake failure described below
+was corrected and this complete run passed. The final wheel and add-on archive
+were checked for current workflow/recovery code; the setuptools build-environment
+limitation below still applies. No permanent installation or client configuration
+was performed.
+
 ## Built-in preview setup
 
 On 2026-11-01, `MCPBLENDER_TEST_BLENDER=1 python3 -m pytest -q
@@ -41,7 +59,8 @@ The complete action group (`tests/test_actions.py tests/test_action_integration.
 passed **18 tests in 77.73 seconds**. The first full regression attempt passed 62
 other tests but had five shared-fixture errors: the initial broker status handshake
 timed out before Blender launched. The action group passed when rerun; the broker
-startup retry is being qualified separately. That attempt is not a full-suite pass.
+startup retry was subsequently corrected and qualified in the complete run above.
+That earlier attempt was not a full-suite pass.
 
 The add-on archive contains the workflow worker without frontend dependencies.
 A standard `python3 -m build --wheel --no-isolation` was blocked by the host's
@@ -51,6 +70,18 @@ does not qualify the declared build environment; no packages were installed or
 upgraded. All three bundled skills passed the skill-creator validator.
 
 ## Named-action engine milestone
+
+### Interruption and startup checks
+
+Five focused checks passed in **29.90 seconds** on 2026-11-01. Startup unit checks
+cover read-only status timeout/disconnect retry with one broker spawn and immediate
+propagation of unrelated protocol/policy errors. Real Blender checks restart the
+broker during a 64-step editing action, then verify all 64 unique objects, the same
+Blender session, and request-ID deduplication. A separate action is interrupted by
+killing its owned Blender process after completed edits. Its unknown outcome is
+recorded; explicit application restart restores the completed checkpoint, and
+resubmitting its request ID does not replay the interrupted action. These are
+bounded local interruption checks, not power-failure or long-duration proof.
 
 On 2026-11-01, the focused engine and shared-infrastructure checks passed:
 
