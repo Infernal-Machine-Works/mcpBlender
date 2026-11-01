@@ -347,7 +347,11 @@ class BridgeServer:
         try:
             if self.pending:
                 reads = {"get_scene_info", "get_object_info", "inspect_mesh", "inspect_shape_keys", "inspect_morph_animation", "sample_morph_animation", "inspect_rig", "inspect_animation", "sample_animation", "get_capabilities", "inspect_resources", "vse_list", "checkpoint", "shutdown_blender", "capture_viewport", "render_still", "render_animation", "render_video"}
-                if not self.pending_checkpointed and self.pending["state"] == "succeeded" and self.active["command"] not in reads:
+                reads.update({"asset_report", "preflight_game_asset"})
+                mutates = self.active["command"] not in reads
+                if self.active["command"] == "run_action":
+                    mutates = any(step["command"] not in reads for step in self.active["params"]["steps"])
+                if not self.pending_checkpointed and self.pending["state"] == "succeeded" and mutates:
                     recovery = self.maybe_checkpoint(force=self.active["command"] == "open_blend")
                     if isinstance(self.pending.get("result"), dict):
                         self.pending["result"]["recovery"] = recovery

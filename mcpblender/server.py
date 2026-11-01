@@ -142,9 +142,9 @@ class State:
                 raise ValueError(f"Output must end in {extension}")
         if command == "render_animation":
             params["directory"] = str(self.library_path(params.get("directory", f"artifacts/{stable}"), write=True))
-        if command in ("open_blend", "import_asset", "save_blend", "export_glb"):
-            params["path"] = str(self.library_path(params["path"], write=command in ("save_blend", "export_glb")))
-            extension = {"save_blend": ".blend", "open_blend": ".blend", "export_glb": ".glb"}.get(command)
+        if command in ("open_blend", "import_asset", "save_blend", "export_glb", "export_objects_glb"):
+            params["path"] = str(self.library_path(params["path"], write=command in ("save_blend", "export_glb", "export_objects_glb")))
+            extension = {"save_blend": ".blend", "open_blend": ".blend", "export_glb": ".glb", "export_objects_glb": ".glb"}.get(command)
             if extension and Path(params["path"]).suffix.lower() != extension:
                 raise ValueError(f"File must end in {extension}")
         if command == "configure_material" and params.get("image_path"):
@@ -274,13 +274,13 @@ def build_server(config: Config):
     async def list_actions() -> dict:
         """Discover permitted named actions. Use describe_action for typed inputs and plan_action before editing."""
         return {"actions": [d.describe() for d in state.actions.definitions.values()
-                            if all(state.allowed(c) for c in d.commands)]}
+                            if all(state.allowed(c) for c in d.required_commands)]}
 
     @server.tool()
     async def describe_action(action: str) -> dict:
         """Return an action's input schema, possible commands, capabilities and definition digest."""
         definition = state.actions.get(action)
-        for command in definition.commands:
+        for command in definition.required_commands:
             state.check(command)
         return definition.describe()
 

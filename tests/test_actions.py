@@ -73,7 +73,9 @@ def test_action_policy_discovery_and_direct_submission(tmp_path):
 
     async def run():
         async with Client(server) as client:
-            assert not (await client.call_tool("list_actions")).data["actions"]
+            available = {a["name"] for a in (await client.call_tool("list_actions")).data["actions"]}
+            assert "custom.make_prop" not in available and "preview_setup" not in available
+            assert "game_asset_prepare" in available
             for tool, args in (("describe_action", {"action": "custom.make_prop"}),
                                ("run_action", {"action": "custom.make_prop", "inputs": {"name": "Denied"}}),
                                ("submit_operation", {"command": "run_action", "params": {"action": "custom.make_prop", "inputs": {"name": "Denied"}}})):
@@ -126,3 +128,25 @@ def test_preview_builtin_typed_plan_and_permissions(tmp_path):
     with pytest.raises(PermissionError):
         state.compile_action("preview_setup", {"objects": ["Prop"]}, "denied")
     assert not Path(config.bridge.socket_path).exists()
+
+
+def test_game_asset_optional_permissions_and_paths(tmp_path):
+    config = configured(tmp_path)
+    config.stdio.allow_scene_edit = False
+    config.stdio.allow_library_write = False
+    _, state = build_server(config)
+    plan = state.compile_action("game_asset_prepare", {"objects": ["Prop"]}, "inspect")
+    assert [s["command"] for s in plan["steps"]] == ["preflight_game_asset", "asset_report", "asset_report"]
+    for inputs in ({"objects": ["Prop"], "generate_uv": True}, {"objects": ["Prop"], "export_path": "prop.glb"}):
+        with pytest.raises(PermissionError):
+            state.compile_action("game_asset_prepare", inputs, "denied")
+    config.stdio.allow_library_write = True
+    with pytest.raises(ValueError, match="library_root"):
+        state.compile_action("game_asset_prepare", {"objects": ["Prop"], "export_path": "../bad.glb"}, "path")
+    config.stdio.allow_scene_edit = True
+    with pytest.raises(ValueError):
+        state.compile_action("game_asset_prepare", {"objects": ["Prop", "Prop"]}, "duplicate")
+    plan = state.compile_action("game_asset_prepare", {"objects": ["Prop"], "generate_uv": True,
+        "triangulate": True, "apply_rotation_scale": True, "export_path": "prop.glb", "save_path": "prop.blend"}, "edits")
+    assert len(plan["steps"]) == 8
+    assert plan["steps"][-1]["params"]["path"].endswith("/library/prop.glb")

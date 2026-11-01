@@ -12,6 +12,17 @@ preview. The retained `/tmp/mb-actions-resume/stage.png` was opened and visually
 inspected. Existing scene objects and lights remain visible by design; this is
 stage setup, not scene isolation or final-quality lighting.
 
+## Game-asset preparation
+
+The action checks expanded to **16 tests passed in 34.94 seconds** on 2026-11-01.
+Real Blender checks verify all-target preflight before transforms, explicit UV and
+triangulation edits, retained world geometry, a saved project, and an explicit-object
+GLB with an embedded texture checked by parsing its JSON chunk. Selection is
+restored after export. Existing UVs are refused without overwrite consent. A
+separate read-only frontend runs inspection and budget checks without a recovery
+checkpoint. Unit checks cover optional-step permission denial, path escape and
+duplicate targets. No target-engine compatibility claim follows from these checks.
+
 ## Named-action engine milestone
 
 On 2026-11-01, the focused engine and shared-infrastructure checks passed:

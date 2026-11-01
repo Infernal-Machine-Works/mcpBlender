@@ -272,6 +272,36 @@ class PreviewSetup(Model):
     strength: FiniteFloat = Field(default=1, gt=0, le=100)
 
 
+class AssetReport(Model):
+    objects: list[Name] = Field(min_length=1, max_length=16)
+    triangle_budget: int = Field(default=100_000, ge=1, le=10_000_000)
+
+
+class GameAssetPrepare(AssetReport):
+    apply_rotation_scale: bool = False
+    generate_uv: bool = False
+    overwrite_uv: bool = False
+    triangulate: bool = False
+    make_single_user: bool = False
+    save_path: str | None = None
+    export_path: str | None = None
+
+    @model_validator(mode="after")
+    def unique_objects(self):
+        if len(set(self.objects)) != len(self.objects):
+            raise ValueError("Object names must be unique")
+        if self.overwrite_uv and not self.generate_uv:
+            raise ValueError("overwrite_uv requires generate_uv")
+        return self
+
+
+class ExportObjects(Model):
+    objects: list[Name] = Field(min_length=1, max_length=64)
+    path: str
+    animations: bool = True
+    overwrite: bool = False
+
+
 class Bone(Model):
     name: Name
     head: Vec3
@@ -393,6 +423,9 @@ EDIT = ("allow_scene_edit",)
 SNAPSHOT = ("allow_snapshots",)
 # model, capability flags, tool description
 COMMANDS = {
+    "asset_report": (AssetReport, (), "Report evaluated mesh topology, UVs, materials, transforms and total triangle budget. Warnings require review; this is not engine compatibility certification."),
+    "preflight_game_asset": (GameAssetPrepare, (), "Check every target for the requested game-asset edits before the action starts editing. No scene changes; later steps can still fail and leave partial edits."),
+    "export_objects_glb": (ExportObjects, ("allow_library_write",), "Export explicit objects to GLB, restoring the user's selection afterward. Include the armature explicitly for skinned assets. Does not overwrite by default."),
     "setup_preview_stage": (PreviewSetup, EDIT, "Create a fresh asset-relative three-area-light setup and fitted active camera. Refuses existing resource names; keeps the stage for later renders. Does not alter render settings or existing lights."),
     "create_animation_clip": (AnimationClip, EDIT, "Create a persistent named skeletal action from typed pose tracks. Bone rotations are XYZ Euler degrees in bone-local rest coordinates. Rejects existing clip names; optionally activate."),
     "set_pose_keyframes": (PoseKeyframes, EDIT, "Insert/replace specified bone vector keyframes in a clip created for this rig. Existing other tracks/frames remain; touched keys use the requested interpolation."),

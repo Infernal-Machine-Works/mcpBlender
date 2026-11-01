@@ -88,6 +88,21 @@ before editing; setup errors remove resources created by the shim and restore th
 previous active camera. This action requires scene-edit permission.
 
 The action engine also supports operator-defined JSON recipes.
+`game_asset_prepare` takes `objects` (up to 16 meshes) and an optional
+`triangle_budget`. Its default plan only preflights and reports evaluated geometry,
+UVs, material slots, transforms and budget warnings. This remains discoverable to
+read-only callers and does not create recovery checkpoints. To request edits, set
+`apply_rotation_scale`, `generate_uv` or `triangulate` explicitly; triangulation adds
+a live `MCP_GameTriangulate` modifier. Shared geometry requires `make_single_user`
+for destructive mesh edits. Existing UVMap data requires `overwrite_uv=true`.
+All targets are checked before editing. Optional `save_path` and `export_path`
+write a project and GLB inside the library without overwriting existing files.
+Export includes only the named meshes and restores the user's selection. The
+editing/export workflow refuses skinned and shape-key meshes; use the qualified
+rig/morph delivery tools for those. Reports are advisory and do not certify Godot
+compatibility, texture fidelity or collision suitability. Optional steps require
+their own permissions; `describe_action` lists possible and required commands.
+
 Add `"action_files": ["actions.json"]` to the server
 configuration; relative paths resolve beside that configuration file. Restart
 the MCP frontend after changing a recipe. For example:
@@ -132,7 +147,7 @@ inside lists and objects. Inputs support strings, integers, numbers, booleans,
 string lists, three-component vectors and RGBA colors. They are strictly typed;
 optional inputs require explicit defaults. Expressions, Python execution, nested
 actions, project reloads, process lifecycle and network/API operations are excluded.
-Every constituent command must be permitted by the caller's policy.
+Every emitted constituent command must be permitted by the caller's policy.
 
 Actions have no rollback: a failed or cooperatively cancelled step can leave scene
 edits and files. Native blocking Blender calls retain their existing cancellation

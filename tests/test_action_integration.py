@@ -2,6 +2,9 @@
 import asyncio
 import os
 import shutil
+import json
+import struct
+import zlib
 from pathlib import Path
 import sys
 import tempfile
@@ -138,4 +141,64 @@ def test_preview_setup_fits_offset_assets_and_refuses_collisions(action_live):
                 destination = Path(directory)
                 destination.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(image, destination / "stage.png")
+    asyncio.run(run())
+
+
+def test_game_asset_inspection_preflight_and_textured_delivery(action_live):
+    root, path, config = action_live
+    library = root / "library"
+    def chunk(kind, data):
+        return struct.pack("!I", len(data)) + kind + data + struct.pack("!I", zlib.crc32(kind + data) & 0xffffffff)
+    (library / "game-texture.png").write_bytes(b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack("!2I5B", 2, 2, 8, 2, 0, 0, 0)) + chunk(b"IDAT", zlib.compress(b"\x00\xff\x90\x20\x20\x90\xff" * 2)) + chunk(b"IEND", b""))
+
+    async def run():
+        async with client_for(path) as client:
+            async def domain(command, **params):
+                return (await client.call_tool(command, {"params": params})).data
+            async def action(inputs):
+                return (await client.call_tool("run_action", {"action": "game_asset_prepare", "inputs": inputs, "wait": True})).data
+            await domain("create_mesh", name="GameBlock", vertices=[[0, 0, 0], [1, 0, 0], [1, 1, 0], [0, 1, 0]], faces=[[0, 1, 2, 3]])
+            await client.call_tool("set_object_transform", {"name": "GameBlock", "scale": [2, 3, 1]})
+            before = (await client.call_tool("inspect_mesh", {"params": {"name": "GameBlock"}})).data
+            rejected = await action({"objects": ["GameBlock", "MissingGameMesh"], "apply_rotation_scale": True})
+            assert rejected["state"] == "failed"
+            assert (await client.call_tool("inspect_mesh", {"params": {"name": "GameBlock"}})).data["geometry_sha256"] == before["geometry_sha256"]
+            assert (await client.call_tool("get_object_info", {"name": "GameBlock"})).data["scale"] == [2, 3, 1]
+            await domain("configure_material", name="GamePaint", image_path="game-texture.png")
+            await domain("assign_material", objects=["GameBlock"], material="GamePaint")
+            await client.call_tool("select_objects", {"names": ["Cube"]})
+            selected_before = (await client.call_tool("get_scene_info")).data
+            result = await action({"objects": ["GameBlock"], "apply_rotation_scale": True,
+                "generate_uv": True, "triangulate": True, "save_path": "game.blend", "export_path": "game.glb"})
+            assert result["state"] == "succeeded", result
+            report = next(s["result"] for s in result["result"]["steps"] if s["id"] == "report")
+            assert report["total_triangles"] == 2 and not report["errors"]
+            assert {i["code"] for i in report["warnings"]} == {"non_manifold"}
+            assert (await client.call_tool("get_object_info", {"name": "GameBlock"})).data["scale"] == [1, 1, 1]
+            after = (await client.call_tool("get_scene_info")).data
+            assert after["active_object"] == selected_before["active_object"]
+            assert {o["name"] for o in after["objects"] if o["selected"]} == {"Cube"}
+            exported = result["result"]["steps"][-1]["result"]
+            assert exported["artifact_id"] and (library / "game.blend").is_file()
+            data = (library / "game.glb").read_bytes()
+            length = struct.unpack_from("<I", data, 12)[0]
+            gltf = json.loads(data[20:20 + length])
+            assert len(gltf["meshes"]) == 1 and gltf["meshes"][0]["name"].startswith("GameBlock")
+            assert gltf["images"][0]["bufferView"] >= 0
+            # Existing UVs are protected, before earlier requested transforms can run.
+            protected = await action({"objects": ["GameBlock"], "generate_uv": True})
+            assert protected["state"] == "failed" and "overwrite_uv" in protected["error"]
+
+        readonly = config.model_copy(deep=True)
+        readonly.stdio.allow_scene_edit = False
+        readonly.stdio.allow_library_write = False
+        readonly_path = root / "readonly.json"
+        write_config(readonly_path, readonly)
+        async with client_for(readonly_path) as client:
+            checkpoint = (await client.call_tool("bridge_status")).data["bridge"].get("checkpoint_path")
+            inspected = (await client.call_tool("run_action", {"action": "game_asset_prepare", "inputs": {"objects": ["GameBlock"], "triangle_budget": 1}, "wait": True})).data
+            assert inspected["state"] == "succeeded", inspected
+            assert "recovery" not in inspected["result"]
+            assert any(i["code"] == "triangle_budget" for i in inspected["result"]["steps"][-1]["result"]["warnings"])
+            assert (await client.call_tool("bridge_status")).data["bridge"].get("checkpoint_path") == checkpoint
     asyncio.run(run())

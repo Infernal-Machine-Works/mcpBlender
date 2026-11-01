@@ -6,7 +6,96 @@ from mathutils import Vector
 
 from . import assets
 
-COMMANDS = {"setup_preview_stage"}
+COMMANDS = {"setup_preview_stage", "asset_report", "preflight_game_asset", "export_objects_glb"}
+
+
+def preflight_game_asset(p):
+    edits = p["apply_rotation_scale"] or p["generate_uv"] or p["triangulate"]
+    for name in p["objects"]:
+        obj = assets.mesh_object(name, edit=edits)
+        if edits or p.get("export_path"):
+            if obj.find_armature() or obj.data.shape_keys:
+                raise ValueError(f"Use rig/morph-aware editing and delivery for {name}; game preparation edits/export support static meshes")
+        if p["apply_rotation_scale"]:
+            assets.require_static(obj)
+        if (p["apply_rotation_scale"] or p["generate_uv"]) and obj.data.users > 1 and not p["make_single_user"]:
+            raise ValueError(f"Shared mesh requires make_single_user=true: {name}")
+        if p["apply_rotation_scale"] or p["generate_uv"]:
+            if bpy.context.mode != "OBJECT" or bpy.context.view_layer.objects.get(name) is not obj or obj.hide_viewport or obj.hide_select or not obj.visible_get():
+                raise ValueError(f"Edits require a visible, selectable target in the current view layer: {name}")
+        if p["generate_uv"] and obj.data.uv_layers.get("UVMap") and not p["overwrite_uv"]:
+            raise ValueError(f"UVMap already exists on {name}; set overwrite_uv=true explicitly")
+        mod = obj.modifiers.get("MCP_GameTriangulate")
+        if p["triangulate"] and mod and mod.type != "TRIANGULATE":
+            raise ValueError(f"MCP_GameTriangulate has a different modifier type on {name}")
+    return {"objects": p["objects"], "edits_requested": bool(edits), "checked": True,
+            "note": "Preflight is not a transaction; later edits or file output can still fail."}
+
+
+def asset_report(p):
+    objects, total, warnings, errors = [], 0, [], []
+    for name in dict.fromkeys(p["objects"]):
+        obj = assets.mesh_object(name)
+        report = assets.inspect_mesh({"name": name, "sample_limit": 0})
+        total += report["triangles"]
+        issues = []
+        def issue(code, severity, message):
+            item = {"object": name, "code": code, "severity": severity, "message": message}
+            issues.append(item)
+            (errors if severity == "error" else warnings).append(item)
+        if not report["vertices"] or not report["polygons"]:
+            issue("empty_geometry", "error", "No renderable mesh faces")
+        if report["non_finite_vertices"]:
+            issue("non_finite_geometry", "error", "Non-finite world coordinates")
+        if not report["uv_layers"]:
+            issue("missing_uv", "warning", "No UV map; required for UV-mapped textures")
+        elif any(layer["non_finite_loops"] for layer in report["uv_layers"]):
+            issue("invalid_uv", "error", "Non-finite UV coordinates")
+        if not obj.data.materials or any(material is None for material in obj.data.materials):
+            issue("missing_material", "warning", "Missing material slots or unassigned slot")
+        if report["topology"]["non_manifold_edges"]:
+            issue("non_manifold", "warning", "Open or non-manifold edges; suitability depends on the asset")
+        if report["topology"]["degenerate_faces"]:
+            issue("degenerate_faces", "warning", "Mesh contains zero-area faces")
+        if any(abs(v - 1) > 1e-5 for v in obj.scale) or any(abs(v) > 1e-5 for v in obj.rotation_euler):
+            issue("unapplied_transforms", "warning", "Review object rotation/scale before delivery")
+        if any(mod.show_render != mod.show_viewport for mod in obj.modifiers):
+            issue("modifier_visibility", "warning", "Viewport and render modifier settings differ")
+        if obj.constraints or (obj.animation_data and obj.animation_data.drivers):
+            issue("procedural_motion", "warning", "Constraints/drivers may need baking for engine delivery")
+        objects.append({"name": name, "mesh": report,
+                        "materials": [m.name if m else None for m in obj.data.materials],
+                        "issues": issues})
+    if total > p["triangle_budget"]:
+        warnings.append({"object": None, "code": "triangle_budget", "severity": "warning",
+                         "message": f"{total} evaluated triangles exceed budget {p['triangle_budget']}"})
+    return {"objects": objects, "total_triangles": total, "triangle_budget": p["triangle_budget"],
+            "errors": errors, "warnings": warnings, "needs_review": bool(errors or warnings),
+            "scope": "Current viewport evaluation; review scale/axes, textures, collision and animation in the target engine. No engine certification."}
+
+
+def export_objects_glb(p):
+    from .bridge import dispatch as core_dispatch
+    if bpy.context.mode != "OBJECT":
+        raise ValueError("Object mode required for explicit-object export")
+    targets = [bpy.data.objects.get(name) for name in p["objects"]]
+    if any(obj is None or bpy.context.view_layer.objects.get(obj.name) is not obj or obj.hide_select or not obj.visible_get() for obj in targets):
+        raise ValueError("Export targets must be visible/selectable objects in the current view layer")
+    selected, active = list(bpy.context.selected_objects), bpy.context.view_layer.objects.active
+    try:
+        for obj in selected:
+            obj.select_set(False)
+        for obj in targets:
+            obj.select_set(True)
+        bpy.context.view_layer.objects.active = targets[0]
+        return core_dispatch("export_glb", {"path": p["path"], "selected_only": True,
+                            "animations": p["animations"], "overwrite": p["overwrite"]})
+    finally:
+        for obj in list(bpy.context.selected_objects):
+            obj.select_set(False)
+        for obj in selected:
+            obj.select_set(True)
+        bpy.context.view_layer.objects.active = active
 
 
 def setup_preview_stage(p):
@@ -73,4 +162,10 @@ def setup_preview_stage(p):
 def dispatch(command, p):
     if command == "setup_preview_stage":
         return setup_preview_stage(p)
+    if command == "preflight_game_asset":
+        return preflight_game_asset(p)
+    if command == "asset_report":
+        return asset_report(p)
+    if command == "export_objects_glb":
+        return export_objects_glb(p)
     raise ValueError(f"Unsupported workflow command: {command}")

@@ -116,15 +116,19 @@ def input_model(recipe):
 
 
 class Definition:
-    def __init__(self, name, version, description, model, commands, compiler, fingerprint):
+    def __init__(self, name, version, description, model, commands, compiler, fingerprint, required_commands=None):
         self.name, self.version, self.description, self.model = name, version, description, model
         self.commands, self.compiler = set(commands), compiler
+        self.required_commands = set(commands if required_commands is None else required_commands)
+        if not self.required_commands <= self.commands:
+            raise ValueError("Required commands must be declared as possible commands")
         self.digest = hashlib.sha256(json.dumps(fingerprint, sort_keys=True, allow_nan=False).encode()).hexdigest()
 
     def describe(self):
         capabilities = sorted({flag for command in self.commands for flag in COMMANDS[command][1]})
         return {"name": self.name, "version": self.version, "definition_sha256": self.digest,
                 "description": self.description, "input_schema": self.model.model_json_schema(),
+                "required_commands": sorted(self.required_commands),
                 "possible_commands": sorted(self.commands), "possible_capabilities": capabilities}
 
 
