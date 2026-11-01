@@ -12,6 +12,21 @@ the task calls for changing them.
 Prefer `inspect_resources`, `configure_material`, `assign_material`,
 `configure_light`, `configure_camera` and `configure_render` for supported setup.
 These take a typed `params` object and work with Python execution disabled.
+For reusable surfaces, prefer `apply_material_preset` with PBR, TEXTURED_PBR,
+GLASS or EMISSION. PBR accepts base_color_texture, roughness_texture,
+metallic_texture and normal_texture; data maps use Non-Color, base color sRGB,
+and packing defaults true. Roughness/metallic maps use their red channel. Assign
+the material with assign_material. Existing materials require replace=true.
+
+For custom supported graphs, discover socket identifiers/indexes and property
+choices with shader_node_catalog, then inspect_shader_graph. configure_shader_graph
+creates/replaces a graph; configure_shader_node, connect_shader_nodes,
+disconnect_shader_input and remove_shader_node support incremental edits. Input
+defaults cannot override a linked input until it is disconnected. Existing links
+need replace_existing=true to replace. Graph edits preflight on a temporary copy;
+rare application failures can still leave partial edits. Script nodes, arbitrary
+RNA, linked materials and animated shader graphs are excluded. Procedural shaders
+and glass need target-engine review/baking; the textured PBR export is qualified.
 For a standard persistent preview stage, discover and plan `preview_setup`, then
 run it with `inputs` containing mesh `objects` and a fresh `prefix`. It fits an
 active camera and creates key/fill/rim area lights around evaluated bounds, leaving
@@ -25,8 +40,8 @@ Check `fully_in_frame`, then judge the rendered image. Fit covers the current
 frame only; refit after aspect or pose changes. Orthographic setup uses
 `configure_camera` with `projection="ORTHO"`.
 
-Use `execute_code`, when permitted, for node graphs, color management or settings
-not yet exposed by structured tools. `bpy` is available; assign structured output
+Use `execute_code`, when permitted, for unsupported nodes/groups, color management
+or settings not yet exposed by structured tools. `bpy` is available; assign structured output
 to `result`, and check `success` and traceback. Namespace variables do not persist
 across calls; scene data does. Native Blender output may be in the Blender log.
 
@@ -66,3 +81,11 @@ editing milestone before expensive work. Preserve wanted images and the editable
 project for delivery. Save paths
 are relative to the active `library_root`; arbitrary Python has Blender's full OS
 permissions. Report which images were actually viewed and which checks remain.
+
+Automatically generated render paths are temporary: default retention is seven
+days with a 2 GiB target and one-hour minimum age. Use explicit output paths for
+deliverables or set_operation_retention(operation_id, pinned=true). Structured
+use as a material/VSE input pins the output group; pin before external/custom
+Python use because those dependencies cannot be inferred. Preview cleanup with
+preview_retention_cleanup before applying a plan. details_pruned=true means old
+history expired; recover current state instead of replaying its mutation.

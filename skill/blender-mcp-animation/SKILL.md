@@ -93,6 +93,14 @@ rendering. Completed PNGs remain when a sequence stops. Queued work cancels
 immediately, frame sequences cancel between frames, and Python can cooperate via
 `check_cancelled()`. Native render/video calls are not forcibly interrupted.
 
+An omitted output path/directory produces temporary output subject to retention
+(seven days by default, with a 2 GiB target and one-hour minimum age). Use explicit
+directories for deliverables or set_operation_retention to pin a generated output
+group. Structured VSE input pins its source group; external editors/custom Python
+need an explicit pin. Cleanup previews report candidates and protections; failed
+or cancelled output can expire, while interrupted unknown-outcome work is protected.
+details_pruned=true means history details expired, not permission to replay an edit.
+
 Use `vse_add_strip`, `vse_edit_strip`, `vse_remove_strip` and `vse_list` to assemble
 image/movie, sound and text strips when a video is requested. `render_video`
 exports a tracked H.264/AAC MP4 from the sequencer. Verify actual encoded dimensions,

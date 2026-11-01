@@ -62,6 +62,13 @@ preserve unlisted vertices by default. New keys start at weight zero; use
 Basis edits and stale topology are refused. Use the animation skill for named
 morph clips, combined bone/morph sampling and GLB animation delivery.
 
+Use apply_material_preset for textured PBR surfaces, with packed color, roughness,
+metallic and normal maps. For custom supported shaders use shader_node_catalog,
+inspect_shader_graph and the typed node/link tools. Existing materials require
+explicit graph replacement; prefer incremental edits when preserving a user graph.
+Procedural shader graphs do not imply equivalent Godot materials; review or bake
+those surfaces before engine delivery.
+
 `execute_code` runs Python on Blender's main thread. `bpy` is preloaded; assign a
 JSON-compatible value to `result`. Each call has a fresh namespace but shares the
 live scene. Prefer direct data API edits where operators would depend on mode,
@@ -103,6 +110,13 @@ completed checkpoint, which can predate the latest edits. `bridge_status` report
 session identity and checkpoint/recovery errors. Check `storage_status` before
 large imports/exports; operation storage fields report current free bytes and
 the estimate/reserve used. Arbitrary Python output size is not predictable.
+
+Explicit project/export paths are protected from temporary-output cleanup. Pin
+wanted generated previews with set_operation_retention before external/custom
+Python use; structured image/VSE/import use pins them automatically. Inspect
+retention_status and preview_retention_cleanup for scope and candidates. Old
+history can return details_pruned=true; its request-ID tombstone still prevents
+replay, so inspect current state rather than resubmitting with a new ID blindly.
 
 The active
 `enable_autonomous_execution` flag is advisory for the orchestrator. Python has
