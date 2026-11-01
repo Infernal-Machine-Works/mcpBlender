@@ -39,6 +39,15 @@ and animation, use the structured armature/binding/clip tools described in
 `blender-mcp-animation`; inspect weights with `inspect_rig` and evaluate deformation
 with `sample_animation` before export.
 
+For relative morph targets, use `create_shape_key` / `edit_shape_key` with sparse
+Basis-relative offsets, absolute mesh-local positions or a same-topology source.
+`inspect_shape_keys` exposes topology fingerprints, changed-vertex samples and
+weight state; carry `expected_topology` into later indexed edits. Coordinate edits
+preserve unlisted vertices by default. New keys start at weight zero; use
+`set_shape_key_weights` for static previews after clearing active morph animation.
+Basis edits and stale topology are refused. Use the animation skill for named
+morph clips, combined bone/morph sampling and GLB animation delivery.
+
 `execute_code` runs Python on Blender's main thread. `bpy` is preloaded; assign a
 JSON-compatible value to `result`. Each call has a fresh namespace but shares the
 live scene. Prefer direct data API edits where operators would depend on mode,
