@@ -1,6 +1,6 @@
 [build-system]
 requires = [
-    "setuptools>=68",
+    "setuptools>=61.0",
     "wheel",
     "setuptools-git-versioning",
 ]
@@ -26,7 +26,6 @@ mcpblender = "mcpblender.server:main"
 
 [tool.setuptools-git-versioning]
 enabled = true
-starting_version = "0.2.0"
 
 [tool.setuptools.packages.find]
 include = ["mcpblender*"]
