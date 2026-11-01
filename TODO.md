@@ -3,8 +3,8 @@
 Primary workflows: animation production; game/simulation asset modeling; model
 visualization. Deployment follows qualification of the needed core workflows.
 
-- Add representative shape-key animation and physics-bake fixtures when selected.
-  Small skeletal fixtures and structured clip tools are now qualified; see
+- Add representative physics-bake fixtures when selected. Small skeletal and
+  relative morph fixtures and structured clip tools are now qualified; see
   VALIDATION.md for their scope and evidence.
 - Verify GLB import in the resumed Godot project: units, axes, UVs/textures, animation
   clips, shader fidelity and collision needs. Export alone is insufficient.

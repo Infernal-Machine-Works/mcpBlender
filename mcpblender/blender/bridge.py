@@ -53,6 +53,8 @@ def object_info(obj, detailed=False):
         "selected": obj.select_get(),
         "materials": [s.material.name if s.material else None for s in obj.material_slots],
     }
+    if obj.type == "MESH":
+        result["shape_keys"] = len(obj.data.shape_keys.key_blocks) if obj.data.shape_keys else 0
     if detailed:
         result["matrix_world"] = [list(row) for row in obj.matrix_world]
         result["modifiers"] = [{"name": m.name, "type": m.type,
@@ -196,18 +198,21 @@ def dispatch(command, params):
         return {"path": path, "objects": sorted(o.name for o in set(bpy.data.objects) - before)}
     if command == "export_glb":
         from .rigging import export_managed_clips
+        from .morphs import export_managed_clips as export_morph_clips
         path = params["path"]
         if params.get("selected_only", True) and not bpy.context.selected_objects:
             raise ValueError("No scene objects selected for export")
         if Path(path).exists() and not params.get("overwrite", False):
             raise FileExistsError(path)
         clips = export_managed_clips(params.get("selected_only", True)) if params.get("animations", True) else contextlib.nullcontext()
-        with gltf_compatibility() as workaround, clips:
+        morph_clips = export_morph_clips(params.get("selected_only", True)) if params.get("animations", True) else contextlib.nullcontext()
+        with gltf_compatibility() as workaround, clips, morph_clips:
             result = bpy.ops.export_scene.gltf(filepath=path, check_existing=False, export_format="GLB",
                                               use_selection=params.get("selected_only", True),
                                               export_draco_mesh_compression_enable=False,
                                               export_yup=True, export_animations=params.get("animations", True),
-                                              export_animation_mode="ACTIONS", export_anim_single_armature=False)
+                                              export_animation_mode="ACTIONS", export_anim_single_armature=False,
+                                              export_merge_animation="ACTION", export_morph=True, export_morph_animation=True)
         if "FINISHED" not in result:
             raise RuntimeError(f"Export failed: {result}")
         return {"path": path, "bytes": Path(path).stat().st_size, "format": "GLB",
@@ -338,7 +343,7 @@ class BridgeServer:
     def tick(self):
         try:
             if self.pending:
-                reads = {"get_scene_info", "get_object_info", "inspect_mesh", "inspect_shape_keys", "inspect_rig", "inspect_animation", "sample_animation", "get_capabilities", "inspect_resources", "vse_list", "checkpoint", "shutdown_blender", "capture_viewport", "render_still", "render_animation", "render_video"}
+                reads = {"get_scene_info", "get_object_info", "inspect_mesh", "inspect_shape_keys", "inspect_morph_animation", "sample_morph_animation", "inspect_rig", "inspect_animation", "sample_animation", "get_capabilities", "inspect_resources", "vse_list", "checkpoint", "shutdown_blender", "capture_viewport", "render_still", "render_animation", "render_video"}
                 if not self.pending_checkpointed and self.pending["state"] == "succeeded" and self.active["command"] not in reads:
                     recovery = self.maybe_checkpoint(force=self.active["command"] == "open_blend")
                     if isinstance(self.pending.get("result"), dict):

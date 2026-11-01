@@ -1,5 +1,6 @@
 """Relative shape-key editing and bounded inspection without user Python."""
 from array import array
+from contextlib import contextmanager
 import hashlib
 import json
 import math
@@ -10,6 +11,7 @@ import bpy
 from .assets import mesh_object
 
 COMMANDS = {"create_shape_key", "edit_shape_key", "inspect_shape_keys", "set_shape_key_weights", "remove_shape_key"}
+COMMANDS.update({"create_morph_clip", "set_morph_keyframes", "set_active_morph_clip", "inspect_morph_animation", "sample_morph_animation"})
 
 
 def topology_digest(mesh):
@@ -100,6 +102,8 @@ def inspect_shapes(p):
                        "non_finite_vertices": invalid, "coordinates_sha256": hashed.hexdigest(), "vertex_samples": samples})
     offset, limit = p.get("offset", 0), p.get("limit", 20)
     return {"name": obj.name, "topology_sha256": digest, "vertices": len(obj.data.vertices),
+            "show_only_shape_key": obj.show_only_shape_key,
+            "active_shape_key": obj.active_shape_key.name if obj.active_shape_key else None,
             "basis": keys.reference_key.name if keys else None, "relative": keys.use_relative if keys else None,
             "managed_topology_matches": (keys.get("mcpblender_topology") == digest) if keys and keys.get("mcpblender_topology") else None,
             "total_keys": len(blocks), "next_offset": offset + limit if not p.get("key") and offset + limit < len(blocks) else None,
@@ -188,6 +192,12 @@ def animation_references(obj, block):
 
 
 def dispatch(command, p):
+    if command == "inspect_morph_animation":
+        return inspect_animation(p)
+    if command == "sample_morph_animation":
+        return sample_animation(p)
+    if command in {"create_morph_clip", "set_morph_keyframes", "set_active_morph_clip"}:
+        return edit_animation(command, p)
     if command == "inspect_shape_keys":
         return inspect_shapes(p)
     if command in {"create_shape_key", "edit_shape_key"}:
@@ -204,6 +214,7 @@ def dispatch(command, p):
             raise ValueError("Requested value lies outside the shape-key slider range")
         isolate(obj)
         keys = obj.data.shape_keys
+        obj.show_only_shape_key = False
         for block in keys.key_blocks:
             if block.name in p["values"]:
                 block.value = p["values"][block.name]
@@ -221,3 +232,266 @@ def dispatch(command, p):
         obj.shape_key_remove(obj.data.shape_keys.key_blocks[p["key"]])
         return {"name": obj.name, "removed": p["key"]}
     raise ValueError(f"Unsupported morph command: {command}")
+
+
+def animation_target(name, edit=True):
+    obj = mesh_object(name, edit=edit)
+    validate_target(obj)
+    if not obj.data.shape_keys or len(obj.data.shape_keys.key_blocks) < 2:
+        raise ValueError("Morph animation requires a mesh with non-Basis shape keys")
+    if edit and obj.data.users > 1:
+        raise ValueError("Morph animation needs independent mesh data; isolate the mesh first")
+    if edit:
+        simple_animation(obj.data.shape_keys)
+    return obj
+
+
+def action_slot(obj, action, identifier=None):
+    from .domains import curves
+    targets = managed_targets(action)
+    if targets and obj.name not in targets:
+        raise ValueError("Morph clip was created for a different mesh")
+    slots = [s for s in action.slots if s.target_id_type == "KEY"]
+    identifier = identifier or targets.get(obj.name)
+    matches = [s for s in slots if s.identifier == identifier] if identifier else [s for s in slots if s.name_display == obj.name]
+    if not matches and not identifier and len(slots) == 1:
+        matches = slots
+    if len(matches) != 1:
+        raise ValueError("Choose a compatible morph KEY slot explicitly using slot")
+    slot = matches[0]
+    channels = list(curves(action, slot))
+    allowed = {b.path_from_id("value") for b in obj.data.shape_keys.key_blocks if b != obj.data.shape_keys.reference_key}
+    if not channels or any(c.data_path not in allowed or c.array_index != 0 for c in channels):
+        raise ValueError("Morph slot must contain only weights of keys present on this mesh")
+    return slot
+
+
+def animation_snapshot(obj):
+    keys, scene = obj.data.shape_keys, bpy.context.scene
+    anim = keys.animation_data
+    return {"had_animation": anim is not None, "action": anim.action if anim else None,
+            "slot": anim.action_slot if anim else None,
+            "settings": {key: getattr(anim, key) for key in ("action_blend_type", "action_extrapolation", "action_influence", "use_nla")} if anim else {},
+            "values": {b.name: b.value for b in keys.key_blocks},
+            "solo": obj.show_only_shape_key, "active_index": obj.active_shape_key_index,
+            "frame": scene.frame_current, "subframe": scene.frame_subframe}
+
+
+def assign_action(obj, action, slot=None):
+    keys = obj.data.shape_keys
+    anim = keys.animation_data_create()
+    anim.action = action
+    if slot:
+        anim.action_slot = slot
+    anim.action_blend_type, anim.action_extrapolation, anim.action_influence = "REPLACE", "HOLD", 1
+    anim.use_nla = False
+    for block in keys.key_blocks:
+        if block != keys.reference_key:
+            block.value = 0
+    obj.show_only_shape_key = False
+    bpy.context.scene.frame_set(bpy.context.scene.frame_current, subframe=bpy.context.scene.frame_subframe)
+    bpy.context.view_layer.update()
+
+
+def restore_animation(obj, saved):
+    keys = obj.data.shape_keys
+    if saved["had_animation"]:
+        anim = keys.animation_data_create()
+        anim.action = saved["action"]
+        if saved["slot"]:
+            anim.action_slot = saved["slot"]
+        for key, value in saved["settings"].items():
+            setattr(anim, key, value)
+    else:
+        keys.animation_data_clear()
+    for block in keys.key_blocks:
+        block.value = saved["values"][block.name]
+    obj.show_only_shape_key, obj.active_shape_key_index = saved["solo"], saved["active_index"]
+    bpy.context.scene.frame_set(saved["frame"], subframe=saved["subframe"])
+    bpy.context.view_layer.update()
+
+
+def inspect_animation(p):
+    from .domains import curves
+    obj = animation_target(p["name"], edit=False)
+    anim = obj.data.shape_keys.animation_data
+    active = anim.action if anim else None
+    action = bpy.data.actions[p["clip"]] if p.get("clip") else active
+    detail = None
+    if action:
+        slot = action_slot(obj, action, p.get("slot"))
+        channels = list(curves(action, slot))
+        detail = {"name": action.name, "slot": slot.identifier, "frame_range": list(action.frame_range),
+                  "total_tracks": len(channels), "tracks": [{"path": c.data_path, "keys": len(c.keyframe_points),
+                  "first_key": list(c.keyframe_points[0].co) if c.keyframe_points else None,
+                  "last_key": list(c.keyframe_points[-1].co) if c.keyframe_points else None}
+                  for c in channels[:p.get("track_limit", 100)]]}
+    actions = sorted(bpy.data.actions, key=lambda a: a.name)
+    offset, limit = p.get("clip_offset", 0), p.get("clip_limit", 50)
+    return {"name": obj.name, "active_clip": active.name if active else None, "detail": detail,
+            "total_clips": len(actions), "next_clip_offset": offset + limit if offset + limit < len(actions) else None,
+            "clips": [{"name": a.name, "frame_range": list(a.frame_range), "managed_targets": managed_targets(a),
+                       "skeletal_target": a.get("mcpblender_target"), "persistent": a.use_fake_user,
+                       "slots": [{"identifier": s.identifier, "target_type": s.target_id_type} for s in a.slots][:100]}
+                      for a in actions[offset:offset + limit]]}
+
+
+def slot_is_shared(keys, action, slot):
+    for other in bpy.data.shape_keys:
+        if other == keys or not other.animation_data:
+            continue
+        anim = other.animation_data
+        if anim.action == action and anim.action_slot == slot:
+            return True
+        if any(s.action == action and s.action_slot == slot for t in anim.nla_tracks for s in t.strips):
+            return True
+    return False
+
+
+def edit_animation(command, p):
+    from .domains import curves
+    from .bridge import check_cancelled, report_progress
+    obj = animation_target(p["name"])
+    keys = obj.data.shape_keys
+    if command == "set_active_morph_clip":
+        action = bpy.data.actions[p["clip"]] if p.get("clip") else None
+        slot = action_slot(obj, action, p.get("slot")) if action else None
+        assign_action(obj, action, slot)
+        return {"name": obj.name, "active_clip": action.name if action else None, "weights_reset": True}
+    for track in p["tracks"]:
+        block = keys.key_blocks.get(track["key"])
+        if block is None or block == keys.reference_key:
+            raise ValueError("Choose existing non-Basis shape keys for animation tracks")
+        if any(not block.slider_min <= k["value"] <= block.slider_max for k in track["keyframes"]):
+            raise ValueError("Keyframe weight lies outside the shape-key slider range")
+    creating = command == "create_morph_clip"
+    action = bpy.data.actions.get(p["clip"])
+    new_action = creating and action is None
+    old_targets = managed_targets(action) if action else {}
+    if creating and action:
+        if not p.get("join_existing", False) or obj.name in old_targets:
+            raise ValueError("Clip name already exists; explicitly join it or use set_morph_keyframes")
+        owner = action.get("mcpblender_target")
+        if not (owner or old_targets) or (owner and not any(m.type == "ARMATURE" and m.object and m.object.name == owner for m in obj.modifiers)):
+            raise ValueError("Can join only a compatible managed action; skeletal owner must bind this mesh")
+    if action and (action.library or action.override_library):
+        raise ValueError("Morph action must be local and editable")
+    if not creating:
+        if not action or obj.name not in old_targets:
+            raise ValueError("Only this mesh's managed morph slot can be edited")
+        slot = action_slot(obj, action)
+        if slot_is_shared(keys, action, slot):
+            raise ValueError("Morph slot is shared by another shape-key datablock")
+    saved, new_slot, succeeded = animation_snapshot(obj), None, False
+    try:
+        if new_action:
+            action = bpy.data.actions.new(p["clip"])
+            action.use_fake_user = True
+            if action.name != p["clip"]:
+                raise ValueError("Blender could not preserve the requested clip name")
+        if creating:
+            new_slot = action.slots.new(id_type="KEY", name=obj.name)
+            slot = new_slot
+        assign_action(obj, action, slot)
+        touched = {}
+        for index, track in enumerate(p["tracks"]):
+            check_cancelled()
+            block = keys.key_blocks[track["key"]]
+            touched[block.path_from_id("value")] = {k["frame"] for k in track["keyframes"]}
+            for key in sorted(track["keyframes"], key=lambda k: k["frame"]):
+                block.value = key["value"]
+                if not block.keyframe_insert(data_path="value", frame=key["frame"], group=block.name):
+                    raise RuntimeError("Blender refused a morph keyframe")
+            report_progress({"phase": "keying morph tracks", "fraction": (index + 1) / len(p["tracks"])})
+        for channel in curves(action, slot):
+            for key in channel.keyframe_points:
+                if channel.data_path in touched and key.co.x in touched[channel.data_path]:
+                    key.interpolation = p.get("interpolation", "LINEAR")
+        action["mcpblender_morph_targets"] = json.dumps(old_targets | {obj.name: slot.identifier})
+        succeeded = True
+    finally:
+        restore_animation(obj, saved)
+        if not succeeded:
+            if new_action and action:
+                bpy.data.actions.remove(action)
+            elif new_slot:
+                action.slots.remove(new_slot)
+    if creating and p.get("activate", True):
+        assign_action(obj, action, slot)
+    elif saved["action"] == action:
+        assign_action(obj, action, slot)
+    return inspect_animation({"name": obj.name, "clip": action.name})
+
+
+def sample_animation(p):
+    from .assets import inspect_mesh
+    from .bridge import check_cancelled, report_progress
+    from . import rigging
+    obj = animation_target(p["name"])
+    keys = obj.data.shape_keys
+    action = bpy.data.actions[p["clip"]] if p.get("clip") else (keys.animation_data.action if keys.animation_data else None)
+    slot = action_slot(obj, action, p.get("slot")) if action else None
+    rig, rig_saved, skeletal_action, skeletal_slot = None, None, None, None
+    if p.get("armature"):
+        rig = rigging.armature_object(p["armature"], edit=True)
+        rigging.simple_animation(rig)
+        if not any(m.type == "ARMATURE" and m.object == rig for m in obj.modifiers):
+            raise ValueError("Mesh must be bound to the sampled armature")
+        skeletal_action = bpy.data.actions[p["skeletal_clip"]] if p.get("skeletal_clip") else (rig.animation_data.action if rig.animation_data else None)
+        skeletal_slot = rigging.action_slot(rig, skeletal_action, p.get("skeletal_slot")) if skeletal_action else None
+        rig_saved = rigging.animation_snapshot(rig)
+    saved, samples = animation_snapshot(obj), []
+    try:
+        if action:
+            assign_action(obj, action, slot)
+        if rig and skeletal_action:
+            rigging.assign_action(rig, skeletal_action, skeletal_slot)
+        for index, frame in enumerate(p["frames"]):
+            check_cancelled()
+            bpy.context.scene.frame_set(frame)
+            info = inspect_mesh({"name": obj.name, "sample_limit": p.get("sample_limit", 16)})
+            samples.append({"frame": frame, "values": {b.name: b.value for b in keys.key_blocks if b != keys.reference_key},
+                            "mesh": {k: info[k] for k in ("vertices", "world_bounds", "geometry_sha256", "vertex_samples", "non_finite_vertices")}})
+            report_progress({"phase": "sampling morph animation", "fraction": (index + 1) / len(p["frames"]), "frame": frame})
+    finally:
+        if rig_saved:
+            rigging.restore_animation(rig, rig_saved)
+        restore_animation(obj, saved)
+    return {"name": obj.name, "clip": action.name if action else None, "samples": samples,
+            "skeletal_clip": skeletal_action.name if skeletal_action else None,
+            "restored_frame": saved["frame"], "restored_clip": saved["action"].name if saved["action"] else None}
+
+
+@contextmanager
+def export_managed_clips(selected_only=True):
+    objects = list(bpy.context.selected_objects if selected_only else bpy.context.scene.objects)
+    meshes, seen = [], set()
+    for obj in objects:
+        if obj.type == "MESH" and obj.data.shape_keys and obj.data.shape_keys.use_relative and obj.data.shape_keys not in seen:
+            seen.add(obj.data.shape_keys)
+            meshes.append(obj)
+    saved = [(obj, animation_snapshot(obj)) for obj in meshes]
+    tracks = []
+    try:
+        for obj in meshes:
+            keys = obj.data.shape_keys
+            existing = {(keys.animation_data.action, keys.animation_data.action_slot)} if keys.animation_data else set()
+            if keys.animation_data:
+                existing.update((s.action, s.action_slot) for t in keys.animation_data.nla_tracks for s in t.strips)
+            for action in bpy.data.actions:
+                if obj.name not in managed_targets(action):
+                    continue
+                slot = action_slot(obj, action)
+                if (action, slot) in existing:
+                    continue
+                track = keys.animation_data_create().nla_tracks.new()
+                tracks.append((keys, track))
+                track.name, track.mute = action.name, True
+                strip = track.strips.new(action.name, int(math.floor(action.frame_range[0])), action)
+                strip.action_slot = slot
+        yield
+    finally:
+        for keys, track in reversed(tracks):
+            keys.animation_data.nla_tracks.remove(track)
+        for obj, state in saved:
+            restore_animation(obj, state)

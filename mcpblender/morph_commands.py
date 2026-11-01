@@ -136,4 +136,9 @@ COMMANDS = {
     "inspect_shape_keys": (ShapeInspection, (), "Inspect paginated relative/absolute keys, weights, topology fingerprint, coordinate digests, deltas and bounded vertex samples without editing."),
     "set_shape_key_weights": (ShapeWeights, EDIT, "Set static named morph values in [0,1], optionally resetting other values. Clear the active morph clip first; drivers/active NLA unsupported."),
     "remove_shape_key": (RemoveShape, EDIT, "Remove one non-Basis key. Refuses relative-key dependencies and animation references, including inactive managed clips."),
+    "create_morph_clip": (MorphClip, EDIT, "Create a persistent named morph action with scalar keyframe tracks. join_existing=true explicitly adds a KEY slot to a compatible managed action, including a bound rig's skeletal clip for combined GLB animation."),
+    "set_morph_keyframes": (MorphKeyframes, EDIT, "Insert/replace specified scalar keys in this mesh's managed morph slot; preserves other action slots and untouched frames."),
+    "set_active_morph_clip": (MorphActive, EDIT, "Activate a compatible morph action/KEY slot, resetting unkeyed weights to zero; omit clip to clear/reset. Supports muted import stashes, not active NLA blending."),
+    "inspect_morph_animation": (MorphInspection, (), "List actions/slots and inspect a selected or active morph slot's tracks and key counts."),
+    "sample_morph_animation": (MorphSampling, (), "Sample evaluated morph geometry at up to 64 frames, optionally with an explicit armature/skeletal_clip. Restores weights, actions, slots, rig pose and frame even on cancellation; temporary evaluation can mark Blender dirty."),
 }

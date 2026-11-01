@@ -363,6 +363,38 @@ reports key values, mute/mask settings, coordinate digests, changed-vertex count
 and samples. Samples for non-Basis keys contain changed vertices. Deletion refuses
 Basis, relative-key dependencies and known animation references.
 
+`create_morph_clip` names the mesh in `name`, the action in `clip`, and accepts
+`tracks` such as `{"key":"Wide","keyframes":[{"frame":1,"value":0},{"frame":12,"value":1}]}`.
+Clips persist while inactive; `activate=false` preserves the current weights and
+action. `set_morph_keyframes` updates specified scalar keys without replacing
+other frames or action slots. Clip editing can leave partial keys on failure;
+there is no general editing rollback. New clips/slots are removed if creation fails.
+
+`set_active_morph_clip` selects a compatible KEY slot and resets unkeyed values to
+zero; omitting `clip` clears the action and weights. Static weight setting also
+exits shape-key solo preview so the requested mixture can be evaluated. Morph
+animation needs independent mesh data. Drivers and active NLA blending are
+refused; muted glTF import stashes are supported. `inspect_morph_animation` lists
+global actions/slots and reports tracks/key counts for the selected morph slot.
+
+For combined skeletal/morph animation, create the skeletal clip first, then call
+`create_morph_clip` with the **same clip name** and `join_existing=true` on its bound
+mesh. This explicitly adds a KEY slot to the managed action; the existing OBJECT
+slot and bone keys remain intact. Multiple meshes can have independent KEY slots
+in one managed clip. Joining an unrelated skeletal rig's action is refused.
+
+`sample_morph_animation` returns weights and evaluated geometry at up to 64 frames.
+Use `armature` and `skeletal_clip` to choose and sample the corresponding bone
+animation in the same operation. Omitting `skeletal_clip` preserves the rig's
+current action; no action leaves its current pose in use. Sampling restores the
+previous frame/subframe, weights, actions, slots, solo-preview state and any
+explicitly sampled rig pose, including on cooperative cancellation. Temporary
+evaluation may mark Blender dirty. Inspect the actual rendered result as well.
+
+`get_scene_info` and `get_object_info` include a shape-key count on mesh objects.
+glTF import may create additional bone-display meshes; use this count or
+`inspect_shape_keys` to identify the asset mesh when reviewing imported morphs.
+
 ## Blender to Godot
 
 Use Blender for modeling, materials, UVs, rigging and animation; export selected
@@ -371,8 +403,11 @@ standard glTF +Y up, and uncompressed meshes. Animation export is configurable.
 The exporter does not forcibly apply destructive transforms or modifiers.
 
 Animated exports use native `ACTIONS` mode. Managed clips belonging to each
-exported rig are included through temporary muted NLA tracks, removed afterward;
-the live action, pose and frame are restored. Existing active actions/NLA clips
+exported rig or relative shape-key datablock are included through temporary muted
+NLA tracks, removed afterward; the live action, pose, weights and frame are
+restored. Skeletal and morph slots in one action merge into one named glTF clip.
+Morph-only exports retain inactive managed clips and static default weights too.
+Existing active actions/NLA clips
 remain eligible, but Blender's automatic broadcasting of unrelated actions to a
 single rig is disabled. Select both the rig and its meshes for skeletal delivery.
 This does not select a subset of an existing complex NLA project; inspect its

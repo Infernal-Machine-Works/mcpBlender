@@ -35,8 +35,9 @@ def test_morph_readonly_policy(tmp_path):
     async def run():
         async with Client(server) as client:
             names = {t.name for t in await client.list_tools()}
-            assert "inspect_shape_keys" in names
-            for command in ("create_shape_key", "edit_shape_key", "set_shape_key_weights", "remove_shape_key"):
+            assert {"inspect_shape_keys", "inspect_morph_animation", "sample_morph_animation"} <= names
+            for command in ("create_shape_key", "edit_shape_key", "set_shape_key_weights", "remove_shape_key",
+                            "create_morph_clip", "set_morph_keyframes", "set_active_morph_clip"):
                 assert command not in names
                 with pytest.raises(PermissionError):
                     state.check(command)
@@ -44,3 +45,16 @@ def test_morph_readonly_policy(tmp_path):
                 await client.call_tool("submit_operation", {"command": "set_shape_key_weights", "params": {"name": "Mesh", "values": {"Wide": 1}}})
 
     asyncio.run(run())
+
+
+def test_morph_tracks_are_scalar_bounded_and_unique():
+    model = COMMANDS["create_morph_clip"][0]
+    track = {"key": "Wide", "keyframes": [{"frame": 1, "value": .5}]}
+    for tracks in ([track, track], [track | {"keyframes": [{"frame": 1, "value": .5}] * 2}],
+                   [track | {"keyframes": [{"frame": 1, "value": 1.1}]}],
+                   [track | {"keyframes": [{"frame": 2_000_000, "value": 1}]}],
+                   [track | {"data_path": "arbitrary.path"}]):
+        with pytest.raises(ValueError):
+            model.model_validate({"name": "Mesh", "clip": "Pulse", "tracks": tracks})
+    with pytest.raises(ValueError):
+        COMMANDS["sample_morph_animation"][0].model_validate({"name": "Mesh", "frames": [1], "skeletal_clip": "Wave"})

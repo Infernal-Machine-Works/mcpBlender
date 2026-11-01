@@ -331,8 +331,14 @@ def edit_animation(command, p):
         action = bpy.data.actions[p["clip"]]
         if action.get("mcpblender_target") != rig.name or action.library:
             raise ValueError("Only clips created for this rig can be edited by set_pose_keyframes")
-        if action.users - int(action.use_fake_user) > 1:
-            raise ValueError("Clip has multiple users; shared animation editing is refused")
+        owned_slot = action_slot(rig, action)
+        for other in bpy.data.objects:
+            if other == rig or not other.animation_data:
+                continue
+            anim = other.animation_data
+            if (anim.action == action and anim.action_slot == owned_slot) or any(
+                    s.action == action and s.action_slot == owned_slot for t in anim.nla_tracks for s in t.strips):
+                raise ValueError("Skeletal slot is shared by another object; shared animation editing is refused")
     saved = animation_snapshot(rig)
     succeeded = False
     try:

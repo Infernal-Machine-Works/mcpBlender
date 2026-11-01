@@ -1,5 +1,20 @@
 # Local validation: 0.2.0
 
+## Latest complete regression
+
+On 2026-11-01, FreeBSD Blender 5.0.1:
+
+```sh
+MCPBLENDER_TEST_BLENDER=1 MCPBLENDER_MORPH_EVIDENCE_DIR=/tmp/mb-morph-20261101 python3 -m pytest -q
+```
+
+**49 tests passed in 247.29 seconds**, with the existing host Starlette/AnyIO
+deprecation warning. The wheel built without dependency downloads and contains
+the morph contracts and worker. The add-on bundle includes the morph worker
+without frontend dependencies. Updated animation/design skills passed their
+validators. Blender was not rebuilt; no permanent deployment or client/skill
+installation was performed.
+
 ## Shape-key additions
 
 `MCPBLENDER_TEST_BLENDER=1 python3 -m pytest -q tests/test_morph_contracts.py tests/test_shape_keys.py`
@@ -10,7 +25,38 @@ source topology refusal, shared-data isolation and save/reopen. Invalid indices,
 stale fingerprints, nonfinite input and read-only editing were refused. New key
 weights are explicitly zeroed because this Blender build initializes new keys at one.
 
-## Latest complete regression
+Named morph animation and delivery checks subsequently covered:
+
+- Scalar keyframe insertion/update and intermediate fractional weights, checked
+  against independently calculated mesh bounds; switching resets unkeyed values.
+- Temporary sampling of another morph clip, with exact restoration of geometry,
+  frame, weights and action. Running combined sampling was cancelled on a detailed
+  mesh; both morph and skeletal states were restored with the original digest.
+- A shared action with separate OBJECT/KEY slots. Editing bone keys preserved the
+  morph slot and editing morph keys preserved bone channels. Joining an unrelated
+  skeletal action and deleting an animated shape were refused.
+- A textured segmented limb with combined skeletal/morph motion. Five consecutive
+  frames were rendered and encoded at 192x192, 12 FPS. Independent ffprobe verified
+  H.264 and five frames; the first and fully flared/bent PNGs were opened and viewed.
+  The video covers the first five frames of the nine-frame source clip.
+- Save/reopen with matching sampled geometry digests. GLB inspection verified
+  named combined and morph-only clips, rotation/weight channels, a named POSITION
+  morph target, skin attributes, UVs and embedded texture. Both clips were
+  re-imported and sampled at frames 1, 3, 5 and 9: weights matched within 0.00001
+  and evaluated world bounds within 0.0001 Blender units. Export restored the live
+  state and removed its temporary tracks.
+- Morph-only export with no rig, an inactive managed action and static weight
+  0.25. The file retained that default weight and its animation; source state
+  remained unchanged, and re-imported sampled weights matched the source.
+
+Evidence is retained under `/tmp/mb-morph-20261101/`: `morph-animation.blend`,
+`morph-animation.glb`, `morph-solo.glb`, `morph-evidence.json`, `morph-preview/` and
+`morph-preview.mp4`. All these workflows ran with Python execution disabled.
+Qualification covers small relative Basis-based shapes, including one morph on
+a two-bone skinned mesh. It does not establish general facial-rig, corrective
+driver, absolute-shape-key or target-engine correctness.
+
+## Skeletal-stage complete regression
 
 On 2026-11-01, FreeBSD Blender 5.0.1:
 
@@ -190,6 +236,6 @@ Native blocking operations are not forcibly cancellable, and arbitrary Python
 cannot be assigned a reliable storage estimate. Recovery preserves the completed
 checkpoint, not edits after it, and does not imply rollback or power-failure proof.
 
-Shape-key animation, physics bakes, constraints/drivers/active NLA blending, other Blender/platform versions,
+Absolute shape-key animation, physics bakes, constraints/drivers/active NLA blending, other Blender/platform versions,
 long-duration workloads, external HTTPS deployment, Godot behavior and real
 external generation services are not qualified by this suite.
