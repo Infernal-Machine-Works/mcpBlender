@@ -1,11 +1,18 @@
 [build-system]
-requires = ["setuptools>=68"]
+requires = [
+    "setuptools>=68",
+    "wheel",
+    "setuptools-git-versioning",
+]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "mcpBlender-tspspi"
-version = "0.2.0"
+dynamic = ["version"]
 description = "Authenticated MCP control of live Blender sessions over private Unix sockets"
+authors = [
+    {name = "Thomas Spielauer", email = "pypipackages01@tspi.at"},
+]
 requires-python = ">=3.11"
 dependencies = ["fastmcp>=4,<5", "pydantic>=2.5,<3", "argon2-cffi>=23.1"]
 
@@ -15,6 +22,10 @@ test = ["pytest>=8", "httpx>=0.27"]
 
 [project.scripts]
 mcpblender = "mcpblender.server:main"
+
+[tool.setuptools-git-versioning]
+enabled = true
+starting_version = "0.2.0"
 
 [tool.setuptools.packages.find]
 include = ["mcpblender*"]
