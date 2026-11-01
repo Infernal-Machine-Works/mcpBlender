@@ -223,10 +223,37 @@ class UVProjection(Named):
     cube_size: FiniteFloat = Field(default=1, gt=0)
 
 
+class DuplicateObject(Named):
+    new_name: Name
+    linked_data: bool = False
+    offset: Vec3 = [0, 0, 0]
+
+
+class ParentObject(Named):
+    parent: Name | None = None
+    keep_world: bool = True
+
+
+class ApplyTransforms(Named):
+    location: bool = False
+    rotation: bool = True
+    scale: bool = True
+    make_single_user: bool = False
+
+    @model_validator(mode="after")
+    def at_least_one_transform(self):
+        if not (self.location or self.rotation or self.scale):
+            raise ValueError("Choose at least one transform to apply")
+        return self
+
+
 EDIT = ("allow_scene_edit",)
 SNAPSHOT = ("allow_snapshots",)
 # model, capability flags, tool description
 COMMANDS = {
+    "duplicate_object": (DuplicateObject, EDIT, "Duplicate a named object into the current collection, with independent mesh/data by default and optional world-space offset. Parent, constraints and animation action references are retained."),
+    "set_parent": (ParentObject, EDIT, "Parent an object, or clear its parent when parent is omitted. Preserve world placement by default; rejects cycles and animated/constrained child transforms."),
+    "apply_transforms": (ApplyTransforms, EDIT, "Bake chosen static mesh transforms into geometry, preserving child world placement. Rotation and scale default true. Shared meshes require make_single_user=true."),
     "generate_uv": (UVProjection, EDIT, "Project every face into a named UV map using SMART or CUBE projection. Existing maps require overwrite=true; shared mesh edits require make_single_user=true. Angles are degrees."),
     "inspect_mesh": (MeshInspection, (), "Inspect base or evaluated mesh topology, UVs, world bounds and sampled vertices at the current frame; does not change the scene."),
     "configure_modifier": (Modifier, EDIT, "Create/update a named bevel, subdivision, decimation, solidify or triangulation modifier using typed settings. Existing modifier type must match."),

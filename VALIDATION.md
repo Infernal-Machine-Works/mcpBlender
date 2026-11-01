@@ -14,6 +14,12 @@ UV projection addition: the same focused command passed **4 tests**. SMART and
 CUBE projection produced finite, nonzero-area UVs without changing geometry;
 overwrite protection and two-map persistence through save/reopen were verified.
 
+Hierarchy/transform addition: the focused command passed **5 tests**. Live checks
+covered world placement under a rotated, nonuniformly scaled parent; cycle
+refusal; child placement during parent transform baking; unparenting; independent
+and shared geometry copies; shared-data refusal/isolation when baking a modifier;
+and refusal to bake animated object transforms. Python execution remained disabled.
+
 2026-11-01, FreeBSD, installed Blender 5.0.1, Python 3.11, FastMCP 4.0.3.
 Blender was not rebuilt and its installed files/preferences were not changed.
 Permanent deployment and consuming-agent configuration remain deferred.

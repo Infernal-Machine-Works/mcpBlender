@@ -239,6 +239,18 @@ and work when `allow_code_execution=false`. Editing requires `allow_scene_edit`;
   `overwrite=true`; shared meshes require `make_single_user=true`. SMART accepts
   `angle_limit_degrees` and `island_margin`; CUBE accepts `cube_size`. The target
   UV map becomes active. Inspect UV bounds and zero-area faces with `inspect_mesh`.
+- `duplicate_object`: choose `new_name`, `linked_data` (default false) and an
+  optional world-space `offset`. The copy is linked to the current collection.
+  Parent, constraints, materials and animation action references are retained;
+  duplicating geometry does not create independent copies of those resources.
+- `set_parent`: set a named `parent` or omit it to unparent. `keep_world=true`
+  preserves placement using the parent inverse. Cycles and singular parents are
+  refused; clearing a parent with world shear is refused rather than losing it.
+- `apply_transforms`: bake `location` (default false), `rotation` and `scale`
+  (default true) into mesh geometry. Child world placement is preserved. Animated,
+  constrained, shape-key or linked/overridden targets are refused; descendants
+  must have static transforms and ordinary object parenting. Shared meshes need
+  `make_single_user=true`. Modifier parameters are not rescaled automatically.
 
 Asset mesh tools require Object mode; operator-based edits also require a visible,
 selectable target in the current view layer. They restore object selection and

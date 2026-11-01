@@ -29,7 +29,8 @@ def test_asset_inspection_visible_without_edit_permission(tmp_path):
         async with Client(server) as client:
             names = {tool.name for tool in await client.list_tools()}
             assert "inspect_mesh" in names
-            for command in ("configure_modifier", "apply_modifier", "remove_modifier", "generate_uv"):
+            for command in ("configure_modifier", "apply_modifier", "remove_modifier", "generate_uv",
+                            "duplicate_object", "set_parent", "apply_transforms"):
                 assert command not in names
                 with pytest.raises(PermissionError):
                     state.check(command)

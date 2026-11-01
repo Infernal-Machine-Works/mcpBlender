@@ -6,8 +6,10 @@ import struct
 
 import bmesh
 import bpy
+from mathutils import Matrix, Vector
 
 COMMANDS = {"inspect_mesh", "configure_modifier", "apply_modifier", "remove_modifier", "generate_uv"}
+COMMANDS.update({"duplicate_object", "set_parent", "apply_transforms"})
 MODIFIER_FIELDS = {
     "BEVEL": ("width", "segments", "limit_method", "angle_limit"),
     "SUBSURF": ("subdivision_type", "levels", "render_levels"),
@@ -17,15 +19,30 @@ MODIFIER_FIELDS = {
 }
 
 
-def mesh_object(name, edit=False):
+def local_object(name):
     obj = bpy.data.objects.get(name)
-    if obj is None or obj.type != "MESH":
-        raise ValueError(f"Expected a mesh object: {name}")
-    if edit and (obj.library or obj.data.library or obj.override_library):
+    if obj is None:
+        raise ValueError(f"Object not found: {name}")
+    if obj.library or obj.override_library or (obj.data and obj.data.library):
         raise ValueError("Editing linked or overridden data is unsupported; make a local asset first")
     if obj.mode != "OBJECT":
         raise ValueError("Object mode required; finish the current edit before using asset tools")
     return obj
+
+
+def mesh_object(name, edit=False):
+    obj = local_object(name) if edit else bpy.data.objects.get(name)
+    if obj is None or obj.type != "MESH":
+        raise ValueError(f"Expected a mesh object: {name}")
+    if obj.mode != "OBJECT":
+        raise ValueError("Object mode required; finish the current edit before using asset tools")
+    return obj
+
+
+def require_static(obj):
+    animation = obj.animation_data
+    if obj.constraints or (animation and (animation.action or animation.drivers or animation.nla_tracks)):
+        raise ValueError("Static unconstrained transforms required; animated or constrained objects are unsupported")
 
 
 @contextmanager
@@ -123,6 +140,8 @@ def inspect_mesh(p):
 def dispatch(command, p):
     if command == "inspect_mesh":
         return inspect_mesh(p)
+    if command in {"duplicate_object", "set_parent", "apply_transforms"}:
+        return edit_object(command, p)
     obj = mesh_object(p["name"], edit=True)
     if command == "generate_uv":
         return generate_uv(obj, p)
@@ -189,3 +208,81 @@ def generate_uv(obj, p):
                 for item, selected in zip(collection, values):
                     item.select = selected
     return inspect_mesh({"name": obj.name, "evaluated": False})
+
+
+def edit_object(command, p):
+    from .bridge import object_info
+    obj = local_object(p["name"])
+    bpy.context.view_layer.update()
+    if command == "duplicate_object":
+        if p["new_name"] in bpy.data.objects:
+            raise ValueError("Object name already exists")
+        duplicate = obj.copy()
+        if obj.data and not p.get("linked_data", False):
+            duplicate.data = obj.data.copy()
+        duplicate.name = p["new_name"]
+        bpy.context.collection.objects.link(duplicate)
+        world = obj.matrix_world.copy()
+        world.translation += Vector(p.get("offset", [0, 0, 0]))
+        duplicate.matrix_world = world
+        bpy.context.view_layer.update()
+        return object_info(duplicate, True) | {"linked_data": bool(obj.data and duplicate.data is obj.data),
+            "animation_actions_shared": bool(obj.animation_data)}
+    require_static(obj)
+    if command == "set_parent":
+        parent = local_object(p["parent"]) if p.get("parent") else None
+        ancestor = parent
+        while ancestor:
+            if ancestor is obj:
+                raise ValueError("Parent relationship would create a cycle")
+            ancestor = ancestor.parent
+        if parent and abs(parent.matrix_world.determinant()) < 1e-12:
+            raise ValueError("Parent world transform must be invertible")
+        if obj.parent and obj.parent_type != "OBJECT":
+            raise ValueError("Only object parenting is supported; bone/vertex parenting requires a specialized tool")
+        world, basis = obj.matrix_world.copy(), obj.matrix_basis.copy()
+        inherited = obj.parent.matrix_world @ obj.matrix_parent_inverse if obj.parent else Matrix.Identity(4)
+        if parent is None and p.get("keep_world", True):
+            location, rotation, scale = world.decompose()
+            representable = Matrix.LocRotScale(location, rotation, scale)
+            if any(abs(world[i][j] - representable[i][j]) > 1e-5 for i in range(4) for j in range(4)):
+                raise ValueError("Cannot clear parent while preserving a sheared world transform; remove shear first")
+        obj.parent = parent
+        obj.parent_type = "OBJECT"
+        obj.matrix_parent_inverse = Matrix.Identity(4)
+        if p.get("keep_world", True) and parent:
+            obj.matrix_parent_inverse = parent.matrix_world.inverted() @ inherited
+            obj.matrix_basis = basis
+        elif p.get("keep_world", True):
+            obj.matrix_world = world
+        else:
+            obj.matrix_basis = basis
+        bpy.context.view_layer.update()
+        return object_info(obj, True)
+    mesh_object(obj.name, edit=True)
+    if obj.data.shape_keys:
+        raise ValueError("Applying transforms to shape-key meshes is not yet supported")
+    if obj.data.users > 1 and not p.get("make_single_user", False):
+        raise ValueError("Mesh data is shared; pass make_single_user=true to isolate this object")
+    # Restore descendants from parent to child after applying the native operator.
+    descendants = []
+    def collect(parent):
+        for child in parent.children:
+            require_static(child)
+            local_object(child.name)
+            if child.parent_type != "OBJECT" or abs(parent.matrix_world.determinant()) < 1e-12:
+                raise ValueError("Descendants require object parenting and invertible parent transforms")
+            descendants.append((child, child.matrix_basis.copy(), parent.matrix_world @ child.matrix_parent_inverse))
+            collect(child)
+    collect(obj)
+    with active_object(obj):
+        if obj.data.users > 1:
+            obj.data = obj.data.copy()
+        finished(bpy.ops.object.transform_apply(location=p.get("location", False),
+            rotation=p.get("rotation", True), scale=p.get("scale", True), properties=False))
+        bpy.context.view_layer.update()
+        for child, basis, inherited in descendants:
+            child.matrix_parent_inverse = child.parent.matrix_world.inverted() @ inherited
+            child.matrix_basis = basis
+            bpy.context.view_layer.update()
+    return object_info(obj, True)
