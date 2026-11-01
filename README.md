@@ -1,5 +1,8 @@
 # mcpBlender
 
+Python distribution name: **`mcpBlender-tspspi`**. The import package and CLI
+command remain `mcpblender`. Building a distribution does not publish it.
+
 MCP control of an installed, running Blender for our internal agent ecosystem.
 Works through a private Unix domain socket with both stdio and authenticated
 Streamable HTTP clients. Blender does **not** need rebuilding. The Blender side

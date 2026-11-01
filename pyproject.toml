@@ -3,7 +3,7 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "mcpblender"
+name = "mcpBlender-tspspi"
 version = "0.2.0"
 description = "Authenticated MCP control of live Blender sessions over private Unix sockets"
 requires-python = ">=3.11"
