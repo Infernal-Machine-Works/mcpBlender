@@ -1,4 +1,4 @@
-include README.md VALIDATION.md TODO.md
+include README.md USER_MANUAL.md VALIDATION.md TODO.md
 recursive-include examples *.conf
 recursive-include examples/rc.d *
 recursive-include docs *.md

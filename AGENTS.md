@@ -9,3 +9,5 @@
 - Preserve user changes and stage only the files or hunks belonging to the work
   being committed.
 - In committed files, refer to the internal agent client as "PQC".
+- Detailed tool contracts and workflow guidance live in USER_MANUAL.md; consult
+  VALIDATION.md for qualification limits and docs/DEPLOYMENT.md for service setup.
