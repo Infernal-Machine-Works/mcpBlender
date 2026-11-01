@@ -7,6 +7,7 @@ from mathutils import Matrix
 from .assets import active_object, finished, local_object, mesh_object
 
 COMMANDS = {"create_armature", "bind_mesh", "inspect_rig"}
+COMMANDS.update({"create_animation_clip", "set_pose_keyframes", "set_active_clip", "inspect_animation", "sample_animation"})
 
 
 def armature_object(name, edit=False):
@@ -190,4 +191,222 @@ def dispatch(command, p):
         return bind_mesh(p)
     if command == "inspect_rig":
         return inspect_rig(p)
+    if command == "inspect_animation":
+        return inspect_animation(p)
+    if command == "sample_animation":
+        return sample_animation(p)
+    if command in {"create_animation_clip", "set_pose_keyframes", "set_active_clip"}:
+        return edit_animation(command, p)
     raise ValueError(f"Unsupported rig command: {command}")
+
+
+def simple_animation(rig):
+    animation = rig.animation_data
+    if rig.constraints or any(b.constraints for b in rig.pose.bones) or (animation and
+            (animation.drivers or animation.nla_tracks or animation.use_tweak_mode)):
+        raise ValueError("Structured clip tools require a rig without constraints, drivers or NLA tracks")
+
+
+def action_slot(rig, action, identifier=None):
+    from .domains import curves
+    owner = action.get("mcpblender_target")
+    if owner and owner != rig.name:
+        raise ValueError("Clip was created for a different armature")
+    slots = [s for s in getattr(action, "slots", ()) if s.target_id_type == "OBJECT"]
+    if slots:
+        matches = [s for s in slots if s.identifier == identifier] if identifier else [s for s in slots if s.name_display == rig.name]
+        if not matches and identifier is None and len(slots) == 1:
+            matches = slots
+        if len(matches) != 1:
+            raise ValueError("Choose a compatible action slot explicitly using slot")
+        slot = matches[0]
+    else:
+        if identifier:
+            raise ValueError("Legacy action has no selectable slots")
+        slot = None
+    channels = list(curves(action, slot))
+    if not channels:
+        raise ValueError("Clip has no animation channels")
+    for channel in channels:
+        # Skeletal tools intentionally exclude object transforms/custom properties.
+        if not channel.data_path.startswith("pose.bones["):
+            raise ValueError("Clip contains non-skeletal channels; use a specialized animation workflow")
+        try:
+            rig.path_resolve(channel.data_path)
+        except (ValueError, KeyError) as exc:
+            raise ValueError("Clip references bones/properties absent from the target rig") from exc
+    return slot
+
+
+def animation_snapshot(rig):
+    anim = rig.animation_data
+    return {"had_animation": anim is not None, "action": anim.action if anim else None,
+            "slot": getattr(anim, "action_slot", None) if anim else None,
+            "settings": {key: getattr(anim, key) for key in ("action_blend_type", "action_extrapolation", "action_influence", "use_nla")} if anim else {},
+            "pose": {b.name: {key: list(getattr(b, key)) for key in
+                     ("location", "rotation_euler", "rotation_quaternion", "rotation_axis_angle", "scale")}
+                     for b in rig.pose.bones},
+            "frame": bpy.context.scene.frame_current, "subframe": bpy.context.scene.frame_subframe}
+
+
+def reset_pose(rig):
+    for bone in rig.pose.bones:
+        bone.matrix_basis = Matrix.Identity(4)
+
+
+def assign_action(rig, action, slot=None):
+    anim = rig.animation_data_create()
+    anim.action = action
+    if slot is not None:
+        anim.action_slot = slot
+    anim.action_blend_type, anim.action_extrapolation, anim.action_influence = "REPLACE", "HOLD", 1
+    reset_pose(rig)
+    bpy.context.scene.frame_set(bpy.context.scene.frame_current, subframe=bpy.context.scene.frame_subframe)
+
+
+def restore_animation(rig, saved):
+    if saved["had_animation"]:
+        anim = rig.animation_data_create()
+        anim.action = saved["action"]
+        if saved["slot"] is not None:
+            anim.action_slot = saved["slot"]
+        for key, value in saved["settings"].items():
+            setattr(anim, key, value)
+    else:
+        rig.animation_data_clear()
+    for bone in rig.pose.bones:
+        for key, value in saved["pose"][bone.name].items():
+            setattr(bone, key, value)
+    bpy.context.scene.frame_set(saved["frame"], subframe=saved["subframe"])
+    bpy.context.view_layer.update()
+
+
+def inspect_animation(p):
+    from .domains import curves
+    rig = armature_object(p["name"])
+    actions = sorted(bpy.data.actions, key=lambda a: a.name)
+    offset, limit = p.get("clip_offset", 0), p.get("clip_limit", 50)
+    active = rig.animation_data.action if rig.animation_data else None
+    action = bpy.data.actions[p["clip"]] if p.get("clip") else active
+    detail = None
+    if action:
+        slot = action_slot(rig, action, p.get("slot"))
+        channels = list(curves(action, slot))
+        detail = {"name": action.name, "slot": slot.identifier if slot else None,
+                  "frame_range": list(action.frame_range), "total_tracks": len(channels),
+                  "tracks": [{"path": c.data_path, "component": c.array_index, "keys": len(c.keyframe_points),
+                              "first_key": list(c.keyframe_points[0].co) if c.keyframe_points else None,
+                              "last_key": list(c.keyframe_points[-1].co) if c.keyframe_points else None}
+                             for c in channels[:p.get("track_limit", 100)]]}
+    return {"name": rig.name, "active_clip": active.name if active else None, "detail": detail,
+            "total_clips": len(actions), "next_clip_offset": offset + limit if offset + limit < len(actions) else None,
+            "clips": [{"name": a.name, "frame_range": list(a.frame_range), "managed_target": a.get("mcpblender_target"),
+                       "persistent": a.use_fake_user,
+                       "slots": [{"identifier": s.identifier, "target_type": s.target_id_type} for s in getattr(a, "slots", ())][:100]}
+                      for a in actions[offset:offset + limit]]}
+
+
+def edit_animation(command, p):
+    from .domains import curves
+    rig = armature_object(p["name"], edit=True)
+    simple_animation(rig)
+    if command == "set_active_clip":
+        action = bpy.data.actions[p["clip"]] if p.get("clip") else None
+        slot = action_slot(rig, action, p.get("slot")) if action else None
+        assign_action(rig, action, slot)
+        return {"name": rig.name, "active_clip": action.name if action else None, "pose_reset": True}
+    for track in p["tracks"]:
+        bone = rig.pose.bones.get(track["bone"])
+        if bone is None:
+            raise ValueError(f"Bone not found: {track['bone']}")
+        if track["property"] == "rotation_degrees" and bone.rotation_mode != "XYZ":
+            raise ValueError("Authored rotation tracks require XYZ bone rotation mode")
+    creating = command == "create_animation_clip"
+    if creating and p["clip"] in bpy.data.actions:
+        raise ValueError("Clip name already exists; use set_pose_keyframes to edit it")
+    action = None
+    if not creating:
+        action = bpy.data.actions[p["clip"]]
+        if action.get("mcpblender_target") != rig.name or action.library:
+            raise ValueError("Only clips created for this rig can be edited by set_pose_keyframes")
+        if action.users - int(action.use_fake_user) > 1:
+            raise ValueError("Clip has multiple users; shared animation editing is refused")
+    saved = animation_snapshot(rig)
+    succeeded = False
+    try:
+        if creating:
+            action = bpy.data.actions.new(p["clip"])
+            action.use_fake_user = True
+            action["mcpblender_target"] = rig.name
+            rig.animation_data_create().action = action
+            slot = action.slots.new(id_type="OBJECT", name=rig.name) if hasattr(action, "slots") else None
+            if slot is not None:
+                rig.animation_data.action_slot = slot
+            reset_pose(rig)
+        else:
+            slot = action_slot(rig, action)
+            assign_action(rig, action, slot)
+        paths, touched = {}, {}
+        for track in p["tracks"]:
+            bone = rig.pose.bones[track["bone"]]
+            prop = "rotation_euler" if track["property"] == "rotation_degrees" else track["property"]
+            path = bone.path_from_id(prop)
+            paths[path] = prop
+            touched[path] = {key["frame"] for key in track["keyframes"]}
+            for key in sorted(track["keyframes"], key=lambda k: k["frame"]):
+                value = [math.radians(v) for v in key["value"]] if prop == "rotation_euler" else key["value"]
+                setattr(bone, prop, value)
+                if not bone.keyframe_insert(data_path=prop, frame=key["frame"], group=bone.name):
+                    raise RuntimeError("Blender refused a pose keyframe")
+        for channel in curves(action, slot):
+            if channel.data_path in paths:
+                for key in channel.keyframe_points:
+                    if key.co.x in touched[channel.data_path]:
+                        key.interpolation = p.get("interpolation", "LINEAR")
+        succeeded = True
+    finally:
+        restore_animation(rig, saved)
+        if creating and not succeeded and action:
+            bpy.data.actions.remove(action)
+    if creating and p.get("activate", True):
+        assign_action(rig, action, slot)
+    elif saved["action"] == action:
+        reset_pose(rig)
+        bpy.context.scene.frame_set(saved["frame"], subframe=saved["subframe"])
+    return inspect_animation({"name": rig.name, "clip": action.name})
+
+
+def sample_animation(p):
+    from .assets import inspect_mesh
+    from .bridge import check_cancelled, report_progress
+    rig = armature_object(p["name"], edit=True)
+    simple_animation(rig)
+    action = bpy.data.actions[p["clip"]] if p.get("clip") else (rig.animation_data.action if rig.animation_data else None)
+    slot = action_slot(rig, action, p.get("slot")) if action else None
+    names = p.get("bones") if p.get("bones") is not None else [b.name for b in rig.data.bones][:32]
+    if any(name not in rig.pose.bones for name in names):
+        raise ValueError("Sampling requested an unknown bone")
+    for name in p.get("meshes", []):
+        mesh = mesh_object(name)
+        if not any(m.type == "ARMATURE" and m.object == rig for m in mesh.modifiers):
+            raise ValueError("Sampled meshes must be bound to the target armature")
+    saved, samples = animation_snapshot(rig), []
+    try:
+        if action:
+            assign_action(rig, action, slot)
+        for index, frame in enumerate(p["frames"]):
+            check_cancelled()
+            bpy.context.scene.frame_set(frame)
+            posed = rig.evaluated_get(bpy.context.evaluated_depsgraph_get())
+            meshes = []
+            for name in p.get("meshes", []):
+                info = inspect_mesh({"name": name, "sample_limit": p.get("sample_limit", 16)})
+                meshes.append({key: info[key] for key in ("name", "vertices", "world_bounds", "geometry_sha256", "vertex_samples", "non_finite_vertices")})
+            samples.append({"frame": frame, "bones": [{"name": name,
+                "head_world": list(posed.matrix_world @ posed.pose.bones[name].head),
+                "tail_world": list(posed.matrix_world @ posed.pose.bones[name].tail)} for name in names], "meshes": meshes})
+            report_progress({"phase": "sampling animation", "fraction": (index + 1) / len(p["frames"]), "frame": frame})
+    finally:
+        restore_animation(rig, saved)
+    return {"name": rig.name, "clip": action.name if action else None, "samples": samples,
+            "restored_frame": saved["frame"], "restored_clip": saved["action"].name if saved["action"] else None}

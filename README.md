@@ -303,6 +303,37 @@ and skin coverage, weight sums and sampled influences. Bone results are paginate
 with `bone_offset`/`bone_limit`. At most 32 bound scene meshes are inspected
 automatically; supply `meshes` for a specific subset. Counts identify truncation.
 
+`create_animation_clip` names the rig in `name` and the new action in `clip`.
+Supply `tracks` with a bone, property (`location`, `rotation_degrees` or `scale`)
+and vector keyframes. Rotations use XYZ Euler **degrees** in bone-local rest
+coordinates; translation uses the same local axes. Clips persist through saving
+even when inactive. `activate` defaults true; existing action names are refused.
+
+```json
+{"params":{"name":"Arm","clip":"Wave","tracks":[{"bone":"Tip","property":"rotation_degrees","keyframes":[{"frame":1,"value":[0,0,0]},{"frame":12,"value":[45,0,0]}]}]}}
+```
+
+Use `set_pose_keyframes` to insert/replace specified keys in a managed clip. Other
+tracks/frames remain, and only touched keys receive the chosen interpolation.
+`set_active_clip` switches clips, resetting unkeyed bone channels to rest to avoid
+leaking the previous pose. Omit `clip` to clear the action and reset pose.
+These clip tools support ordinary skeletal actions without constraints, drivers
+or NLA blending. Authoring rotations requires XYZ bones; imported compatible
+skeletal actions can be selected using their `slot` identifier when ambiguous.
+
+`inspect_animation` lists paginated actions/slots and reports channel paths, key
+counts and ranges for a chosen or active action. The action list is global;
+`managed_target` identifies clips authored for a specific rig. A chosen action
+must resolve to skeletal channels on that rig.
+
+`sample_animation` evaluates up to 64 `frames`, optionally in a chosen `clip`,
+returning bone world endpoints and evaluated geometry for up to eight bound
+`meshes`. Samples restore the previous frame, subframe, action, slot and original
+pose channels, including on cooperative cancellation. Sampling is available to
+read-only keys but needs a local rig for temporary evaluation and can mark Blender
+dirty. Use sampled vertices/bounds as deformation evidence; inserted keys alone
+do not prove skinning is correct. `inspect_rig` gives the current pose and weights.
+
 ## Blender to Godot
 
 Use Blender for modeling, materials, UVs, rigging and animation; export selected

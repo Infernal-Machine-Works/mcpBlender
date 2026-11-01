@@ -330,10 +330,65 @@ class RigInspection(Named):
     sample_limit: int = Field(default=16, ge=0, le=256)
 
 
+class PoseTrack(Model):
+    bone: Name
+    property: Literal["location", "rotation_degrees", "scale"] = "rotation_degrees"
+    keyframes: list[Keyframe] = Field(min_length=1, max_length=10_000)
+
+    @model_validator(mode="after")
+    def unique_frames(self):
+        if len({k.frame for k in self.keyframes}) != len(self.keyframes):
+            raise ValueError("Track keyframe frames must be unique")
+        return self
+
+
+class PoseKeyframes(Named):
+    clip: Name
+    tracks: list[PoseTrack] = Field(min_length=1, max_length=1000)
+    interpolation: Literal["LINEAR", "BEZIER", "CONSTANT"] = "LINEAR"
+
+    @model_validator(mode="after")
+    def bounded_tracks(self):
+        if len({(t.bone, t.property) for t in self.tracks}) != len(self.tracks):
+            raise ValueError("Bone/property tracks must be unique")
+        if sum(len(t.keyframes) for t in self.tracks) > 100_000:
+            raise ValueError("Clip update is limited to 100000 vector keyframes")
+        return self
+
+
+class AnimationClip(PoseKeyframes):
+    activate: bool = True
+
+
+class ActiveClip(Named):
+    clip: Name | None = None
+    slot: Name | None = None
+
+
+class AnimationInspection(Named):
+    clip: Name | None = None
+    slot: Name | None = None
+    clip_offset: int = Field(default=0, ge=0)
+    clip_limit: int = Field(default=50, ge=1, le=200)
+    track_limit: int = Field(default=100, ge=1, le=1000)
+
+
+class AnimationSampling(ActiveClip):
+    frames: list[int] = Field(min_length=1, max_length=64)
+    meshes: list[Name] = Field(default_factory=list, max_length=8)
+    bones: list[Name] | None = Field(default=None, max_length=32)
+    sample_limit: int = Field(default=16, ge=0, le=64)
+
+
 EDIT = ("allow_scene_edit",)
 SNAPSHOT = ("allow_snapshots",)
 # model, capability flags, tool description
 COMMANDS = {
+    "create_animation_clip": (AnimationClip, EDIT, "Create a persistent named skeletal action from typed pose tracks. Bone rotations are XYZ Euler degrees in bone-local rest coordinates. Rejects existing clip names; optionally activate."),
+    "set_pose_keyframes": (PoseKeyframes, EDIT, "Insert/replace specified bone vector keyframes in a clip created for this rig. Existing other tracks/frames remain; touched keys use the requested interpolation."),
+    "set_active_clip": (ActiveClip, EDIT, "Activate a compatible skeletal action, or clear the action and reset pose if clip is omitted. Resets unkeyed pose channels to rest to prevent clip leakage; NLA/drivers/constraints unsupported."),
+    "inspect_animation": (AnimationInspection, (), "List paginated actions/slots and inspect a selected or active clip's tracks, key counts, range and target compatibility without changing pose."),
+    "sample_animation": (AnimationSampling, (), "Sample bone endpoints and evaluated mesh geometry at up to 64 frames, optionally in a selected clip. Restores frame, action, slot and pose even on cancellation; temporary evaluation can mark Blender dirty."),
     "create_armature": (Armature, EDIT, "Create a named skeleton from bone head/tail positions in armature-local coordinates, optional parents, connected joints and roll in degrees. Preserves selection."),
     "bind_mesh": (SkinBinding, EDIT, "Bind an unparented mesh to an armature in rest pose using AUTO weights, one RIGID bone, or EXPLICIT per-vertex weights. Refuses existing skin bindings/group conflicts; reports weight coverage."),
     "inspect_rig": (RigInspection, (), "Inspect paginated rest/posed bones and skin weights, including unweighted vertices, weight sums and sampled influences. Uses the current frame without editing the scene."),

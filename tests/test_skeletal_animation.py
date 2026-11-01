@@ -103,3 +103,61 @@ def test_skeleton_creation_and_skin_binding(animation_live):
             assert info["parent"] is None and not info["modifiers"]
 
     asyncio.run(run())
+
+
+def test_named_clips_keyframes_and_independent_deformation(animation_live):
+    _, path = animation_live
+
+    async def run():
+        async with client_for(path) as client:
+            await make_limb(client, "ClipRig", "ClipLimb", x=30)
+            base = await tool(client, "inspect_mesh", name="ClipLimb")
+            clip = await tool(client, "create_animation_clip", name="ClipRig", clip="Bend", tracks=[{
+                "bone": "Tip", "property": "rotation_degrees", "keyframes": [
+                    {"frame": 1, "value": [0, 0, 0]}, {"frame": 5, "value": [45, 0, 0]}, {"frame": 9, "value": [90, 0, 0]}]}])
+            assert clip["detail"]["total_tracks"] == 3 and clip["detail"]["frame_range"] == [1, 9]
+            await tool(client, "create_animation_clip", name="ClipRig", clip="Shift", activate=False, tracks=[{
+                "bone": "Base", "property": "location", "keyframes": [{"frame": 1, "value": [.4, 0, 0]}, {"frame": 9, "value": [.4, 0, 0]}]}])
+            await client.call_tool("set_frame", {"frame": 5})
+            posed_before = await tool(client, "inspect_mesh", name="ClipLimb")
+            sampled = await tool(client, "sample_animation", name="ClipRig", clip="Bend", frames=[1, 3, 5, 9], meshes=["ClipLimb"], sample_limit=20)
+            assert sampled["restored_frame"] == 5 and sampled["restored_clip"] == "Bend"
+            assert (await tool(client, "inspect_mesh", name="ClipLimb"))["geometry_sha256"] == posed_before["geometry_sha256"]
+            samples = sampled["samples"]
+            assert len({s["meshes"][0]["geometry_sha256"] for s in samples}) == 4
+            assert samples[0]["meshes"][0]["geometry_sha256"] == base["geometry_sha256"]
+            assert samples[0]["meshes"][0]["vertex_samples"][16]["world"] != samples[-1]["meshes"][0]["vertex_samples"][16]["world"]
+            tip = next(b for b in samples[2]["bones"] if b["name"] == "Tip")
+            assert tip["head_world"] == pytest.approx([30, 0, 1], abs=1e-5)
+            assert tip["tail_world"][0] == pytest.approx(30, abs=1e-5)
+            assert abs(tip["tail_world"][1]) == pytest.approx(math.sin(math.pi / 4), abs=1e-5)
+            assert tip["tail_world"][2] == pytest.approx(1 + math.cos(math.pi / 4), abs=1e-5)
+            top = [v["world"] for v in samples[2]["meshes"][0]["vertex_samples"][16:20]]
+            assert [sum(v[i] for v in top) / 4 for i in range(3)] == pytest.approx(tip["tail_world"], abs=1e-5)
+            assert samples[0]["meshes"][0]["vertex_samples"][:4] == samples[-1]["meshes"][0]["vertex_samples"][:4]
+            await tool(client, "set_active_clip", name="ClipRig", clip="Shift")
+            shifted = await tool(client, "inspect_rig", name="ClipRig", meshes=[])
+            assert shifted["bones"][0]["pose_head_world"][0] == pytest.approx(30.4, abs=1e-5)
+            await tool(client, "set_active_clip", name="ClipRig", clip="Bend")
+            unshifted = await tool(client, "inspect_rig", name="ClipRig", meshes=[])
+            assert unshifted["bones"][0]["pose_head_world"][0] == pytest.approx(30, abs=1e-5)
+            edited = await tool(client, "set_pose_keyframes", name="ClipRig", clip="Bend", tracks=[{
+                "bone": "Tip", "property": "rotation_degrees", "keyframes": [{"frame": 5, "value": [30, 0, 0]}]}])
+            assert all(t["keys"] == 3 for t in edited["detail"]["tracks"])
+            sample = await tool(client, "sample_animation", name="ClipRig", frames=[5], bones=["Tip"])
+            assert sample["samples"][0]["bones"][0]["tail_world"][2] == pytest.approx(1 + math.cos(math.pi / 6), abs=1e-5)
+            with pytest.raises(ToolError, match="already exists"):
+                await tool(client, "create_animation_clip", name="ClipRig", clip="Bend", tracks=[{
+                    "bone": "Tip", "keyframes": [{"frame": 1, "value": [0, 0, 0]}]}])
+            await tool(client, "create_armature", name="OtherClipRig", bones=[{"name": "Root", "head": [0, 0, 0], "tail": [0, 0, 1]}])
+            with pytest.raises(ToolError, match="different armature"):
+                await tool(client, "set_active_clip", name="OtherClipRig", clip="Bend")
+            with pytest.raises(ToolError, match="Bone not found"):
+                await tool(client, "create_animation_clip", name="ClipRig", clip="InvalidClip", tracks=[{
+                    "bone": "Missing", "keyframes": [{"frame": 1, "value": [0, 0, 0]}]}])
+            assert "InvalidClip" not in {a["name"] for a in (await tool(client, "inspect_animation", name="ClipRig"))["clips"]}
+            await tool(client, "set_active_clip", name="ClipRig")
+            assert (await tool(client, "inspect_mesh", name="ClipLimb"))["geometry_sha256"] == base["geometry_sha256"]
+            await tool(client, "set_active_clip", name="ClipRig", clip="Bend")
+
+    asyncio.run(run())

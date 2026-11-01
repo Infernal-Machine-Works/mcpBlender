@@ -36,8 +36,8 @@ def test_animation_readonly_policy(tmp_path):
     async def run():
         async with Client(server) as client:
             names = {t.name for t in await client.list_tools()}
-            assert "inspect_rig" in names
-            for command in ("create_armature", "bind_mesh"):
+            assert {"inspect_rig", "inspect_animation", "sample_animation"} <= names
+            for command in ("create_armature", "bind_mesh", "create_animation_clip", "set_pose_keyframes", "set_active_clip"):
                 assert command not in names
                 with pytest.raises(PermissionError):
                     state.check(command)
@@ -45,3 +45,13 @@ def test_animation_readonly_policy(tmp_path):
                 await client.call_tool("submit_operation", {"command": "create_armature", "params": {}})
 
     asyncio.run(run())
+
+
+def test_pose_tracks_are_bounded_and_not_arbitrary_paths():
+    model = COMMANDS["create_animation_clip"][0]
+    key = {"frame": 1, "value": [0, 0, 0]}
+    track = {"bone": "Tip", "property": "rotation_degrees", "keyframes": [key]}
+    for tracks in ([track | {"property": "arbitrary.python"}], [track, track],
+                   [track | {"keyframes": [key, key]}], [track | {"bone": ""}]):
+        with pytest.raises(ValueError):
+            model.model_validate({"name": "Rig", "clip": "Bend", "tracks": tracks})

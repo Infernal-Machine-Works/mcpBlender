@@ -10,6 +10,13 @@ and exercised rigid and native automatic binding. Existing binding and invalid
 vertex references were refused. Contract tests reject cyclic/invalid skeletons,
 malformed weight arguments and editing through a read-only policy.
 
+Named clip addition: the focused command passed **5 tests**. It authored and
+edited bone tracks, sampled key and intermediate poses, checked the upper mesh
+ring against an independently calculated 45-degree endpoint, verified a fixed
+lower ring, and compared exact geometry digests before/after temporary sampling.
+Switching clips reset unkeyed channels; clearing the action restored rest pose.
+Duplicate names, missing bones and cross-rig managed actions were refused.
+
 ## Structured asset additions
 
 Latest full regression command:
