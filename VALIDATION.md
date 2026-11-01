@@ -1,5 +1,15 @@
 # Local validation: 0.2.0
 
+## Skeletal tools additions
+
+`MCPBLENDER_TEST_BLENDER=1 python3 -m pytest -q tests/test_animation_contracts.py tests/test_skeletal_animation.py`
+passed **3 tests** on Blender 5.0.1. Python execution was disabled. Live checks
+created a connected two-bone armature, bound a segmented mesh with blended explicit
+weights, verified world endpoints/paginated inspection and preserved selection,
+and exercised rigid and native automatic binding. Existing binding and invalid
+vertex references were refused. Contract tests reject cyclic/invalid skeletons,
+malformed weight arguments and editing through a read-only policy.
+
 ## Structured asset additions
 
 Latest full regression command:

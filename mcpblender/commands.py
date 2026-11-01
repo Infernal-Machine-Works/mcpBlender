@@ -263,10 +263,80 @@ class FrameObjects(Named):
         return self
 
 
+class Bone(Model):
+    name: Name
+    head: Vec3
+    tail: Vec3
+    parent: Name | None = None
+    connected: bool = False
+    deform: bool = True
+    roll_degrees: FiniteFloat = 0
+
+
+class Armature(Named):
+    bones: list[Bone] = Field(min_length=1, max_length=256)
+    location: Vec3 = [0, 0, 0]
+
+    @model_validator(mode="after")
+    def valid_skeleton(self):
+        by_name = {bone.name: bone for bone in self.bones}
+        if len(by_name) != len(self.bones):
+            raise ValueError("Bone names must be unique")
+        for bone in self.bones:
+            if sum((a - b) ** 2 for a, b in zip(bone.head, bone.tail)) < 1e-12:
+                raise ValueError("Bones must have nonzero length")
+            if bone.parent and bone.parent not in by_name:
+                raise ValueError("Bone parent does not exist")
+            if bone.connected and (not bone.parent or any(abs(a - b) > 1e-5 for a, b in zip(bone.head, by_name[bone.parent].tail))):
+                raise ValueError("Connected bone head must match its parent tail")
+            seen, current = set(), bone
+            while current:
+                if current.name in seen:
+                    raise ValueError("Bone parents must not contain cycles")
+                seen.add(current.name)
+                current = by_name.get(current.parent)
+        return self
+
+
+class VertexInfluences(Model):
+    vertex: int = Field(ge=0)
+    weights: dict[Name, Annotated[FiniteFloat, Field(gt=0, le=1)]] = Field(min_length=1, max_length=32)
+
+
+class SkinBinding(Named):
+    armature: Name
+    method: Literal["AUTO", "RIGID", "EXPLICIT"] = "AUTO"
+    bone: Name | None = None
+    weights: list[VertexInfluences] = Field(default_factory=list, max_length=1_000_000)
+    normalize: bool = True
+    require_complete: bool = True
+    make_single_user: bool = False
+
+    @model_validator(mode="after")
+    def method_arguments(self):
+        if (self.method == "RIGID") != (self.bone is not None):
+            raise ValueError("Supply bone only for RIGID binding")
+        if (self.method == "EXPLICIT") != bool(self.weights):
+            raise ValueError("Supply weights only for EXPLICIT binding")
+        if len({entry.vertex for entry in self.weights}) != len(self.weights):
+            raise ValueError("Explicit vertex entries must be unique")
+        return self
+
+
+class RigInspection(Named):
+    meshes: list[Name] | None = Field(default=None, max_length=32)
+    bone_offset: int = Field(default=0, ge=0)
+    bone_limit: int = Field(default=200, ge=1, le=1000)
+    sample_limit: int = Field(default=16, ge=0, le=256)
+
+
 EDIT = ("allow_scene_edit",)
 SNAPSHOT = ("allow_snapshots",)
 # model, capability flags, tool description
 COMMANDS = {
+    "create_armature": (Armature, EDIT, "Create a named skeleton from bone head/tail positions in armature-local coordinates, optional parents, connected joints and roll in degrees. Preserves selection."),
+    "bind_mesh": (SkinBinding, EDIT, "Bind an unparented mesh to an armature in rest pose using AUTO weights, one RIGID bone, or EXPLICIT per-vertex weights. Refuses existing skin bindings/group conflicts; reports weight coverage."),
+    "inspect_rig": (RigInspection, (), "Inspect paginated rest/posed bones and skin weights, including unweighted vertices, weight sums and sampled influences. Uses the current frame without editing the scene."),
     "frame_objects": (FrameObjects, EDIT, "Fit an existing perspective/orthographic camera named name to evaluated mesh bounds at the current render aspect ratio. Choose a view preset or direction from asset toward camera. Reports normalized projection bounds; may change clip distances."),
     "duplicate_object": (DuplicateObject, EDIT, "Duplicate a named object into the current collection, with independent mesh/data by default and optional world-space offset. Parent, constraints and animation action references are retained."),
     "set_parent": (ParentObject, EDIT, "Parent an object, or clear its parent when parent is omitted. Preserve world placement by default; rejects cycles and animated/constrained child transforms."),

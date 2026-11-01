@@ -271,6 +271,38 @@ Example `configure_modifier` arguments:
 {"params":{"name":"Prop","modifier":"SoftEdges","settings":{"type":"BEVEL","width":0.05,"segments":3}}}
 ```
 
+## Structured skeletal animation
+
+`create_armature`, `bind_mesh` and `inspect_rig` take typed `params` and work with
+Python execution disabled. Creation/binding require scene-edit permission;
+inspection is available to read-only clients.
+
+Create bones from armature-local `head`/`tail` positions, optional `parent`,
+`connected` and `roll_degrees`. The armature object's `location` places the whole
+skeleton. Bone names must be unique, connected heads must match parent tails,
+and cyclic parent relationships are rejected before submission. Creation
+preserves active object and selection and never replaces an existing object.
+
+`bind_mesh` names the mesh in `name` and the skeleton in `armature`:
+
+- `AUTO` (default) uses Blender's native bone-heat weighting.
+- `RIGID` assigns all vertices to the named `bone` with weight one.
+- `EXPLICIT` accepts `weights`, e.g. `[{"vertex":0,"weights":{"Base":0.5,"Tip":0.5}}]`.
+  Each vertex index appears once; weights normalize by default.
+
+Bind an unparented, unbound mesh before animating the skeleton, with bones in an
+unconstrained rest pose. Existing armature modifiers and conflicting bone-named
+groups are refused. Shared mesh data requires `make_single_user=true`.
+`require_complete=true` rejects incomplete coverage. Failed binding removes its
+new groups/modifiers and restores placement; an isolated mesh copy may remain.
+Native automatic weighting can occupy Blender's main thread; operation/storage
+status remains available through the broker.
+
+`inspect_rig` reports rest and evaluated pose matrices/endpoints, bone hierarchy,
+and skin coverage, weight sums and sampled influences. Bone results are paginated
+with `bone_offset`/`bone_limit`. At most 32 bound scene meshes are inspected
+automatically; supply `meshes` for a specific subset. Counts identify truncation.
+
 ## Blender to Godot
 
 Use Blender for modeling, materials, UVs, rigging and animation; export selected
