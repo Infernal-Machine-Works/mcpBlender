@@ -34,7 +34,10 @@ after an error; these operations do not roll back.
 Use `configure_camera` then `frame_objects` to fit named meshes for a preview;
 configure the intended render aspect first and check `fully_in_frame`. Refit after
 pose/aspect changes. Use Python only for functionality the structured tools do
-not yet expose, such as specialized node graphs or rig editing, when policy allows.
+not yet expose, such as specialized node graphs, when policy allows. For skeletons
+and animation, use the structured armature/binding/clip tools described in
+`blender-mcp-animation`; inspect weights with `inspect_rig` and evaluate deformation
+with `sample_animation` before export.
 
 `execute_code` runs Python on Blender's main thread. `bpy` is preloaded; assign a
 JSON-compatible value to `result`. Each call has a fresh namespace but shares the
