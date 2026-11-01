@@ -1,0 +1,4 @@
+include README.md VALIDATION.md TODO.md
+recursive-include examples *.conf
+recursive-include skill SKILL.md
+recursive-include tools *.py
