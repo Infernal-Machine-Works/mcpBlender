@@ -32,8 +32,10 @@ def test_key_generation_rotation_and_freecad_compatibility(tmp_path):
     assert match_key("wrong", config.api_keys) is None
     # Verify the same KDF fields/hash can be consumed by the sibling server.
     import importlib.util
-    sibling = Path("/absolute/path/to/mcpFreeCAD/mcpfreecad/config/api_keys.py")
-    if sibling.exists():
+    sibling_path = os.environ.get("MCPBLENDER_TEST_FREECAD_KEY_MODULE")
+    if sibling_path:
+        sibling = Path(sibling_path)
+        assert sibling.is_file(), "Configured FreeCAD key module does not exist"
         spec = importlib.util.spec_from_file_location("freecad_key_utils", sibling)
         module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(module)

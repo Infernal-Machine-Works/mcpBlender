@@ -30,6 +30,9 @@ For development with dependencies already available, every CLI example also work
 as `python3 -m mcpblender.server ...` from this checkout. No installation into
 Blender's Python environment is needed.
 
+For a wheel-based permanent runtime, FreeBSD service supervision and client/skill
+setup, see [persistent installation](docs/DEPLOYMENT.md).
+
 ## Blender startup and attachment
 
 The MCP server can start Blender through `start_blender`. With

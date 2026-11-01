@@ -8,3 +8,4 @@
 - Keep commits local. Push only when the user explicitly requests it.
 - Preserve user changes and stage only the files or hunks belonging to the work
   being committed.
+- In committed files, refer to the internal agent client as "PQC".
