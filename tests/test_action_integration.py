@@ -1,6 +1,7 @@
 """Named action execution in disposable Blender with Python execution disabled."""
 import asyncio
 import os
+import shutil
 from pathlib import Path
 import sys
 import tempfile
@@ -10,6 +11,7 @@ from fastmcp import Client
 from fastmcp.client.transports import StdioTransport
 
 from mcpblender.config import Config, write_config
+from mcpblender.commands import DOMAIN_COMMANDS
 from mcpblender.launcher import Launcher
 from mcpblender.wire import call
 from test_actions import recipe, recipe_file
@@ -96,4 +98,44 @@ def test_action_cancellation_reports_completed_edits(action_live):
             assert 1 <= len(done) < 64
             objects = (await client.call_tool("get_scene_info")).data["objects"]
             assert sum(o["name"].startswith("ActionPart") and o["name"][len("ActionPart"):].isdigit() for o in objects) == len(done)
+    asyncio.run(run())
+
+
+def test_preview_setup_fits_offset_assets_and_refuses_collisions(action_live):
+    root, path, _ = action_live
+
+    async def run():
+        async with client_for(path) as client:
+            async def tool(tool_name, **params):
+                return (await client.call_tool(tool_name, {"params": params} if tool_name in DOMAIN_COMMANDS else params)).data
+            await tool("create_primitive", name="StageAsset", location=[17, -8, 4], scale=[2, 1, 3])
+            await tool("configure_material", name="StagePaint", base_color=[.08, .4, .65, 1], roughness=.45)
+            await tool("assign_material", objects=["StageAsset"], material="StagePaint")
+            await tool("configure_render", resolution_x=192, resolution_y=128, samples=4)
+            before = await tool("get_scene_info")
+            bad = await tool("run_action", action="preview_setup", inputs={"objects": ["StageAsset", "MissingStageMesh"]}, wait=True)
+            assert bad["state"] == "failed"
+            assert {o["name"] for o in (await tool("get_scene_info"))["objects"]} == {o["name"] for o in before["objects"]}
+            result = await tool("run_action", action="preview_setup", inputs={"objects": ["StageAsset"]}, wait=True)
+            assert result["state"] == "succeeded", result
+            stage = result["result"]["steps"][0]["result"]
+            assert stage["asset_center"] == pytest.approx([17, -8, 4])
+            assert stage["camera"]["fully_in_frame"] and len(stage["lights"]) == 3
+            assert all(abs(light["location"][0] - 17) < 20 for light in stage["lights"])
+            snapshot = await tool("get_scene_info")
+            collision = await tool("run_action", action="preview_setup", inputs={"objects": ["StageAsset"]}, wait=True)
+            assert collision["state"] == "failed" and "already exists" in collision["error"]
+            assert (await tool("get_scene_info"))["objects"] == snapshot["objects"]
+            ortho = await tool("run_action", action="preview_setup", inputs={"objects": ["StageAsset"], "prefix": "Ortho", "projection": "ORTHO"}, wait=True)
+            assert ortho["state"] == "succeeded" and ortho["result"]["steps"][0]["result"]["camera"]["fully_in_frame"]
+            # Render from the perspective stage using the ordinary snapshot path.
+            queued = await tool("submit_operation", command="render_still", params={"path": "stage.png", "width": 192, "height": 128, "engine": "CYCLES", "camera": "Preview_Camera"})
+            rendered = await tool("wait_operation", operation_id=queued["operation_id"], timeout_seconds=60)
+            assert rendered["state"] == "succeeded", rendered
+            image = root / "library/stage.png"
+            assert image.stat().st_size > 100
+            if directory := os.environ.get("MCPBLENDER_ACTION_EVIDENCE_DIR"):
+                destination = Path(directory)
+                destination.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(image, destination / "stage.png")
     asyncio.run(run())

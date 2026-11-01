@@ -131,6 +131,9 @@ class Definition:
 class Registry:
     def __init__(self, files=()):
         self.definitions = {}
+        from .workflows import definitions
+        for definition in definitions():
+            self.add(definition)
         for filename in files:
             path = Path(filename).expanduser()
             if path.stat().st_size > 1024 * 1024:
@@ -156,7 +159,7 @@ class Registry:
 
     def compile(self, name, inputs):
         definition = self.get(name)
-        values = definition.model.model_validate(inputs).model_dump(exclude_none=True)
+        values = definition.model.model_validate(inputs, strict=True).model_dump(exclude_none=True)
         plan = definition.compiler(values)
         steps = plan["steps"]
         if not 1 <= len(steps) <= 64 or len({s["id"] for s in steps}) != len(steps):

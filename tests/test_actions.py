@@ -110,3 +110,19 @@ def test_recipe_paths_relative_to_config(tmp_path):
     path = tmp_path / "server.json"
     write_config(path, config)
     assert load_config(path).action_files == [str(tmp_path / "actions.json")]
+
+
+def test_preview_builtin_typed_plan_and_permissions(tmp_path):
+    config = configured(tmp_path)
+    _, state = build_server(config)
+    plan = state.compile_action("preview_setup", {"objects": ["Prop"], "prefix": "Studio"}, "stage")
+    assert plan["steps"][0]["command"] == "setup_preview_stage"
+    assert plan["steps"][0]["params"]["projection"] == "PERSP"
+    for inputs in ({"objects": []}, {"objects": ["Prop"], "prefix": "../escape"},
+                   {"objects": ["Prop"], "strength": 0}):
+        with pytest.raises(ValueError):
+            state.compile_action("preview_setup", inputs, "invalid")
+    config.stdio.allow_scene_edit = False
+    with pytest.raises(PermissionError):
+        state.compile_action("preview_setup", {"objects": ["Prop"]}, "denied")
+    assert not Path(config.bridge.socket_path).exists()

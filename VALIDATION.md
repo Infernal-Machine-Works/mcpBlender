@@ -1,5 +1,17 @@
 # Local validation: 0.2.0
 
+## Built-in preview setup
+
+On 2026-11-01, `MCPBLENDER_TEST_BLENDER=1 python3 -m pytest -q
+tests/test_actions.py tests/test_action_integration.py --tb=short` passed **14 tests
+in 26.75 seconds**. Separate action/server checks passed 18 tests. With Python
+execution disabled, Blender created an offset painted asset, rejected a missing
+target without adding objects, fitted perspective and orthographic cameras,
+refused a repeated stage prefix without changing objects, and rendered a Cycles
+preview. The retained `/tmp/mb-actions-resume/stage.png` was opened and visually
+inspected. Existing scene objects and lights remain visible by design; this is
+stage setup, not scene isolation or final-quality lighting.
+
 ## Named-action engine milestone
 
 On 2026-11-01, the focused engine and shared-infrastructure checks passed:

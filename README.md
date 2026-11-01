@@ -77,8 +77,18 @@ and separately register the checkout's UI module in the same session.
 
 ## Named actions and local recipes
 
-The action engine supports operator-defined JSON recipes. No built-in workflow
-presets are shipped yet. Add `"action_files": ["actions.json"]` to the server
+The built-in `preview_setup` action accepts `objects` (mesh names), an optional
+fresh `prefix`, `view`, `projection`, `margin` and light `strength`. It creates
+persistent key/fill/rim area lights centered on evaluated asset bounds and a fitted
+active camera. Existing lights remain; render settings and selection are preserved.
+Fit uses the current frame and render aspect: refit after pose or aspect changes.
+For example, run `preview_setup` with `{"objects": ["Building"], "prefix": "Studio"}`,
+then render with camera `Studio_Camera`. Resource-name collisions are refused
+before editing; setup errors remove resources created by the shim and restore the
+previous active camera. This action requires scene-edit permission.
+
+The action engine also supports operator-defined JSON recipes.
+Add `"action_files": ["actions.json"]` to the server
 configuration; relative paths resolve beside that configuration file. Restart
 the MCP frontend after changing a recipe. For example:
 

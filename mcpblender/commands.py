@@ -263,6 +263,15 @@ class FrameObjects(Named):
         return self
 
 
+class PreviewSetup(Model):
+    objects: list[Name] = Field(min_length=1, max_length=64)
+    prefix: str = Field(default="Preview", pattern="^[a-zA-Z][a-zA-Z0-9_-]{0,39}$")
+    view: Literal["FRONT", "BACK", "LEFT", "RIGHT", "TOP", "BOTTOM", "ISOMETRIC"] = "ISOMETRIC"
+    projection: Literal["PERSP", "ORTHO"] = "PERSP"
+    margin: FiniteFloat = Field(default=1.15, ge=1, le=10)
+    strength: FiniteFloat = Field(default=1, gt=0, le=100)
+
+
 class Bone(Model):
     name: Name
     head: Vec3
@@ -384,6 +393,7 @@ EDIT = ("allow_scene_edit",)
 SNAPSHOT = ("allow_snapshots",)
 # model, capability flags, tool description
 COMMANDS = {
+    "setup_preview_stage": (PreviewSetup, EDIT, "Create a fresh asset-relative three-area-light setup and fitted active camera. Refuses existing resource names; keeps the stage for later renders. Does not alter render settings or existing lights."),
     "create_animation_clip": (AnimationClip, EDIT, "Create a persistent named skeletal action from typed pose tracks. Bone rotations are XYZ Euler degrees in bone-local rest coordinates. Rejects existing clip names; optionally activate."),
     "set_pose_keyframes": (PoseKeyframes, EDIT, "Insert/replace specified bone vector keyframes in a clip created for this rig. Existing other tracks/frames remain; touched keys use the requested interpolation."),
     "set_active_clip": (ActiveClip, EDIT, "Activate a compatible skeletal action, or clear the action and reset pose if clip is omitted. Resets unkeyed pose channels to rest to prevent clip leakage; NLA/drivers/constraints unsupported."),
