@@ -1,6 +1,29 @@
 # Local validation: 0.2.0
 
-## Latest complete regression
+## Named-action engine milestone
+
+On 2026-11-01, the focused engine and shared-infrastructure checks passed:
+
+```sh
+MCPBLENDER_TEST_BLENDER=1 python3 -m pytest -q tests/test_actions.py tests/test_action_integration.py tests/test_server.py tests/test_operations.py tests/test_storage.py tests/test_wire.py --tb=short
+```
+
+**30 tests passed in 21.95 seconds**, with the existing host Starlette/AnyIO
+deprecation warning. Tests cover strict recipe inputs, forbidden commands and
+templates, permission filtering and preflight, library-path confinement, stable
+generated paths, storage estimates and configuration-relative recipe files.
+Real Blender tests use Python execution disabled and verify successful serial
+editing/inspection, explicit partial failure with retained edits, frontend reconnect
+and request-ID deduplication, and running cancellation between completed steps.
+Owned test Blender and broker processes are stopped by fixture cleanup.
+
+This is a focused check of the current changes. The complete regression below
+predates the engine. Built-in workflow recipes, specialized server-side shims,
+action-specific broker-restart/crash tests and representative named-action asset
+delivery remain pending. Actions provide partial reports, not transactional rollback
+or step-by-step recovery. No permanent installation was performed.
+
+## Latest complete regression (before the action engine)
 
 On 2026-11-01, FreeBSD Blender 5.0.1:
 

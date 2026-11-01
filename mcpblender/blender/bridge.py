@@ -30,6 +30,9 @@ class OperationCancelled(Exception):
 
 def report_progress(progress):
     if _bridge and _bridge.active:
+        if _bridge.active["command"] == "run_action":
+            from .actions import decorate_progress
+            progress = decorate_progress(progress)
         policy = _bridge.active.get("storage", {})
         progress = progress | {"storage": snapshot(policy.get("path", _bridge.path.parent),
                                                     reserve_bytes=policy.get("reserve_bytes", 256 * 1024**2))}
@@ -374,19 +377,24 @@ class BridgeServer:
                         else:
                             self.finish("failed" if result.get("success") is False else "succeeded", result)
                     except OperationCancelled as exc:
-                        self.finish("cancelled", error=str(exc))
+                        self.finish("cancelled", getattr(exc, "result", None), error=str(exc))
                     except Exception as exc:
-                        self.finish("failed", error=f"{type(exc).__name__}: {exc}")
+                        self.finish("failed", getattr(exc, "result", None), error=f"{type(exc).__name__}: {exc}")
             elif self.iterator:
                 try:
                     report_progress(next(self.iterator))
                     if self.cancel_requested:
-                        self.iterator.close()
-                        self.finish("cancelled", error="Cancelled between animation frames; completed files remain")
+                        if self.active["command"] == "run_action":
+                            self.iterator.throw(OperationCancelled("Cancelled at an action boundary; partial effects may remain"))
+                        else:
+                            self.iterator.close()
+                            self.finish("cancelled", error="Cancelled between animation frames; completed files remain")
                 except StopIteration as completed:
                     self.finish("succeeded", completed.value)
+                except OperationCancelled as exc:
+                    self.finish("cancelled", getattr(exc, "result", None), error=str(exc))
                 except Exception as exc:
-                    self.finish("failed", error=f"{type(exc).__name__}: {exc}")
+                    self.finish("failed", getattr(exc, "result", None), error=f"{type(exc).__name__}: {exc}")
         except (OSError, RuntimeError) as exc:
             # Preserve active/pending work; reconnecting must never repeat bpy edits.
             try:

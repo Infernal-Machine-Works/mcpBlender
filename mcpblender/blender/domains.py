@@ -7,6 +7,7 @@ from mathutils import Vector
 from . import assets
 from . import rigging
 from . import morphs
+from . import actions
 
 COMMANDS = {"get_capabilities", "inspect_resources", "create_primitive", "create_mesh",
             "configure_material", "assign_material", "configure_light", "configure_camera",
@@ -15,6 +16,7 @@ COMMANDS = {"get_capabilities", "inspect_resources", "create_primitive", "create
 COMMANDS.update(assets.COMMANDS)
 COMMANDS.update(rigging.COMMANDS)
 COMMANDS.update(morphs.COMMANDS)
+COMMANDS.update(actions.COMMANDS)
 
 
 def strips(editor):
@@ -39,6 +41,8 @@ def curves(action, slot):
 
 
 def dispatch(command, p):
+    if command in actions.COMMANDS:
+        return actions.dispatch(command, p)
     if command in morphs.COMMANDS:
         return morphs.dispatch(command, p)
     if command in rigging.COMMANDS:

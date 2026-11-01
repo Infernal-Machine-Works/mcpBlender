@@ -82,6 +82,7 @@ class Config(Model):
     api_keys: list[APIKey] = Field(default_factory=list)
     asset_sources: dict[str, AssetSource] = Field(default_factory=dict)
     storage: Storage = Field(default_factory=Storage)
+    action_files: list[str] = Field(default_factory=list, max_length=16)
 
     @model_validator(mode="after")
     def unique_key_ids(self):
@@ -92,7 +93,10 @@ class Config(Model):
 
 
 def load_config(path: str | Path) -> Config:
-    return Config.model_validate_json(Path(path).expanduser().read_text())
+    path = Path(path).expanduser().resolve()
+    config = Config.model_validate_json(path.read_text())
+    config.action_files = [str((path.parent / Path(p).expanduser()).resolve()) for p in config.action_files]
+    return config
 
 
 def hash_key(token: str, kdf: dict) -> str:

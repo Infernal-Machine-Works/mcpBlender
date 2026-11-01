@@ -29,6 +29,7 @@ from .persistence import Records
 from .commands import COMMANDS, DOMAIN_COMMANDS
 from .storage import snapshot, require_space, estimate
 from .broker import ensure_broker
+from .actions import Registry
 
 ACTIVE_KEY: ContextVar[APIKey | None] = ContextVar("mcpblender_key", default=None)
 CAPABILITIES = {
@@ -65,6 +66,7 @@ class AccessTransform(Transform):
 class State:
     def __init__(self, config: Config):
         self.config = config
+        self.actions = Registry(config.action_files)
         self.launcher = Launcher(config)
         self.launcher.frontend_managed = True
         self.artifacts = Records(Path(config.bridge.socket_path).expanduser().parent)
@@ -112,8 +114,8 @@ class State:
 
     async def submit(self, command, params, request_id=None):
         self.check(command)
-        params = self.prepare(command, params, request_id)
         request_id = request_id or uuid.uuid4().hex
+        params = self.prepare(command, params, request_id)
         path = params.get("path") or params.get("directory") or self.policy().library_root
         size, kind = estimate(command, params)
         storage = dict(self.config.storage.model_dump(), path=str(path), estimated_bytes=size, estimate_kind=kind)
@@ -130,6 +132,8 @@ class State:
         if command not in COMMANDS:
             raise ValueError("Unknown operation command; use get_capabilities for supported operations")
         params = COMMANDS[command][0].model_validate(params).model_dump(exclude_none=True)
+        if command == "run_action":
+            return self.compile_action(params["action"], params["inputs"], request_id or uuid.uuid4().hex)
         stable = hashlib.sha256((self.owner() + command + request_id).encode()).hexdigest()[:32] if request_id else uuid.uuid4().hex
         if command in ("render_still", "capture_viewport", "render_video"):
             extension = ".mp4" if command == "render_video" else ".png"
@@ -166,23 +170,50 @@ class State:
                 params["path"] = str(self.library_path(params["path"], write=command == "download_asset"))
         return params
 
+    def compile_action(self, name, inputs, request_id):
+        plan = self.actions.compile(name, inputs)
+        for step in plan["steps"]:
+            self.check(step["command"])
+        steps = []
+        for step in plan["steps"]:
+            params = self.prepare(step["command"], step["params"], request_id + ":" + step["id"])
+            size, kind = estimate(step["command"], params)
+            path = params.get("path") or params.get("directory") or self.policy().library_root
+            storage = dict(self.config.storage.model_dump(), path=str(path), estimated_bytes=size, estimate_kind=kind)
+            steps.append(step | {"params": params, "storage": storage})
+        return plan | {"steps": steps}
+
     async def operation(self, identifier):
         operation = await self.control("get_operation", operation_id=identifier, owner=self.owner())
         result = operation.get("result")
-        if operation["state"] == "succeeded" and isinstance(result, dict):
+        if isinstance(result, dict) and operation["command"] == "run_action":
+            for step in result.get("steps", []):
+                value = step.get("result")
+                if isinstance(value, dict):
+                    step["result"] = self.enrich_result(value, identifier + ":" + step["id"])
+                partial = step.get("partial_output")
+                if partial and partial.get("existing_frames"):
+                    partial["preview_artifacts"] = [self.artifact(p, "image", hashlib.sha256((identifier + p).encode()).hexdigest()[:32])
+                                                    for p in partial["existing_frames"][:3] if Path(p).is_file()]
+        elif operation["state"] == "succeeded" and isinstance(result, dict):
+            operation["result"] = self.enrich_result(result, identifier)
+        return operation
+
+    def enrich_result(self, result, identifier):
+        if isinstance(result, dict):
             if result.get("path") and Path(result["path"]).is_file():
                 suffix = Path(result["path"]).suffix.lower()
                 kind = {".png": "image", ".glb": "model", ".mp4": "video", ".json": "manifest"}.get(suffix, "file")
                 artifact_id = hashlib.sha256((identifier + result["path"]).encode()).hexdigest()[:32]
-                operation["result"] = result | self.artifact(result["path"], kind, artifact_id)
+                result = result | self.artifact(result["path"], kind, artifact_id)
             if result.get("frames"):
                 frames = result["frames"]
                 previews = []
                 for path in dict.fromkeys([frames[0], frames[len(frames) // 2], frames[-1]]):
                     artifact_id = hashlib.sha256((identifier + path).encode()).hexdigest()[:32]
                     previews.append(self.artifact(path, "image", artifact_id))
-                operation["result"]["preview_artifacts"] = previews
-        return operation
+                result["preview_artifacts"] = previews
+        return result
 
     async def rpc(self, command, **params):
         if command == "status":
@@ -234,10 +265,43 @@ class State:
 def build_server(config: Config):
     state = State(config)
     server = FastMCP("mcpBlender", version=__version__,
-                     instructions="Inspect the scene before editing; use execute_code for bpy scripting. "
+                     instructions="Inspect the scene before editing; prefer named actions and structured tools for supported workflows. "
                      "Inspect geometry and images after changes. Blender is a shared session. "
                      "A bridge timeout does not cancel execution. start_blender launches explicitly.")
     server.add_transform(AccessTransform(state))
+
+    @server.tool()
+    async def list_actions() -> dict:
+        """Discover permitted named actions. Use describe_action for typed inputs and plan_action before editing."""
+        return {"actions": [d.describe() for d in state.actions.definitions.values()
+                            if all(state.allowed(c) for c in d.commands)]}
+
+    @server.tool()
+    async def describe_action(action: str) -> dict:
+        """Return an action's input schema, possible commands, capabilities and definition digest."""
+        definition = state.actions.get(action)
+        for command in definition.commands:
+            state.check(command)
+        return definition.describe()
+
+    @server.tool()
+    async def plan_action(action: str, inputs: dict | None = None, request_id: str | None = None) -> dict:
+        """Validate an action and every step/permission/path without starting Blender or applying scene edits. Reuse request_id to retain generated output paths."""
+        identifier = request_id or uuid.uuid4().hex
+        return state.compile_action(action, inputs or {}, identifier) | {"request_id": identifier}
+
+    @server.tool()
+    async def run_action(action: str, inputs: dict | None = None, wait: bool = False, request_id: str | None = None) -> dict:
+        """Run one serial tracked action. Default returns immediately. With wait=true return the operation, including state and partial results on failure/cancellation; no rollback or replay."""
+        queued = await state.submit("run_action", {"action": action, "inputs": inputs or {}}, request_id)
+        if not wait:
+            return queued
+        deadline = time.monotonic() + config.bridge.timeout_seconds
+        while True:
+            result = await state.operation(queued["operation_id"])
+            if result["state"] in ("succeeded", "failed", "cancelled", "interrupted") or time.monotonic() >= deadline:
+                return result
+            await asyncio.sleep(.05)
 
     @server.tool()
     async def storage_status(path: str | None = None) -> dict:

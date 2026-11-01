@@ -519,3 +519,7 @@ from .morph_commands import COMMANDS as MORPH_COMMANDS
 
 COMMANDS.update(MORPH_COMMANDS)
 DOMAIN_COMMANDS.update(MORPH_COMMANDS)
+
+from .action_contracts import COMMANDS as ACTION_COMMANDS
+
+COMMANDS.update(ACTION_COMMANDS)

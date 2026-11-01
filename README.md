@@ -75,6 +75,60 @@ process has `MCPBLENDER_BRIDGE_SOCKET` set. An add-on installation is unnecessar
 when starting Blender through the MCP server. Do not enable the installed add-on
 and separately register the checkout's UI module in the same session.
 
+## Named actions and local recipes
+
+The action engine supports operator-defined JSON recipes. No built-in workflow
+presets are shipped yet. Add `"action_files": ["actions.json"]` to the server
+configuration; relative paths resolve beside that configuration file. Restart
+the MCP frontend after changing a recipe. For example:
+
+```json
+{
+  "format_version": 1,
+  "actions": [{
+    "name": "custom.make_prop",
+    "version": "1",
+    "description": "Create and inspect a named prop.",
+    "inputs": {
+      "name": {"type": "string", "description": "Unique object name."}
+    },
+    "steps": [
+      {"id": "create", "command": "create_primitive", "params": {"name": {"$input": "name"}}},
+      {"id": "inspect", "command": "inspect_mesh", "params": {"name": {"$input": "name"}}}
+    ]
+  }]
+}
+```
+
+Use `list_actions`, then `describe_action` for the input schema, definition digest
+and required capabilities. `plan_action` validates all inputs, step parameters,
+permissions and library paths without starting Blender or editing the scene;
+preparing output paths can create parent directories. Pass its `request_id` and
+the same inputs to `run_action` for matching generated output paths. Request IDs
+retain the usual operation deduplication rules; changed definitions or inputs
+cannot silently reuse a different operation.
+
+`run_action` defaults to asynchronous submission. With `wait=true`, it returns the
+complete operation record, including failed or cancelled state and partial results.
+Validation and permission errors are raised before submission. Steps execute
+serially within one tracked operation. Progress includes completed steps, nested
+operation progress and fresh storage reports. Known output estimates are summed;
+some steps have unknown storage requirements. Each step also checks its storage
+policy before execution. Completed output artifacts and available partial render
+frames remain inspectable through operation status.
+
+Recipes allow 1–64 steps and whole-value `{"$input": "name"}` references, including
+inside lists and objects. Inputs support strings, integers, numbers, booleans,
+string lists, three-component vectors and RGBA colors. They are strictly typed;
+optional inputs require explicit defaults. Expressions, Python execution, nested
+actions, project reloads, process lifecycle and network/API operations are excluded.
+Every constituent command must be permitted by the caller's policy.
+
+Actions have no rollback: a failed or cooperatively cancelled step can leave scene
+edits and files. Native blocking Blender calls retain their existing cancellation
+limits. A frontend reconnect can retrieve the original operation by request ID;
+interrupted operations are not automatically replayed or resumed step by step.
+
 ## Configuration
 
 See [examples/mcpblender.conf](examples/mcpblender.conf). JSON is the configuration

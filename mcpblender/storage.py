@@ -35,6 +35,8 @@ def require_space(path, estimated_bytes=0, **policy):
 
 
 def estimate(command, params):
+    if command == "run_action":
+        return sum(s["storage"]["estimated_bytes"] for s in params["steps"]), "sum_known_action_outputs_some_steps_may_be_unknown"
     if command in ("render_still", "capture_viewport", "render_animation"):
         count = 1
         if command == "render_animation":
