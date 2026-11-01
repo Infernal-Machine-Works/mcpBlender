@@ -6,6 +6,7 @@ import bpy
 from mathutils import Vector
 from . import assets
 from . import rigging
+from . import morphs
 
 COMMANDS = {"get_capabilities", "inspect_resources", "create_primitive", "create_mesh",
             "configure_material", "assign_material", "configure_light", "configure_camera",
@@ -13,6 +14,7 @@ COMMANDS = {"get_capabilities", "inspect_resources", "create_primitive", "create
             "vse_add_strip", "vse_edit_strip", "vse_remove_strip", "vse_list"}
 COMMANDS.update(assets.COMMANDS)
 COMMANDS.update(rigging.COMMANDS)
+COMMANDS.update(morphs.COMMANDS)
 
 
 def strips(editor):
@@ -37,6 +39,8 @@ def curves(action, slot):
 
 
 def dispatch(command, p):
+    if command in morphs.COMMANDS:
+        return morphs.dispatch(command, p)
     if command in rigging.COMMANDS:
         return rigging.dispatch(command, p)
     if command in assets.COMMANDS:

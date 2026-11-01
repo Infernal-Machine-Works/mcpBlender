@@ -335,6 +335,34 @@ read-only keys but needs a local rig for temporary evaluation and can mark Blend
 dirty. Use sampled vertices/bounds as deformation evidence; inserted keys alone
 do not prove skinning is correct. `inspect_rig` gives the current pose and weights.
 
+## Structured shape keys
+
+`create_shape_key`, `edit_shape_key`, `inspect_shape_keys`,
+`set_shape_key_weights` and `remove_shape_key` use typed `params`. They work with
+Python execution disabled; inspection is available to read-only keys.
+
+Create a named `key` on mesh `name`. Basis is created automatically, and new keys
+start at weight zero. Supply sparse `vertices` entries such as
+`{"vertex":2,"value":[0,0,0.5]}`: `mode="OFFSET"` means displacement from Basis;
+`mode="POSITION"` means absolute mesh-local coordinates. Offsets do not accumulate
+when repeated. Alternatively supply `source_object` with matching ordered vertex,
+edge and polygon topology; its raw local reference coordinates become the shape.
+Source object transforms, modifiers and active morph weights are not copied.
+
+Coordinate editing preserves unspecified vertices; `reset_unspecified=true`
+resets them to Basis first. Basis editing and absolute shape-key workflows are
+refused. Imported relative keys must be relative to Basis to edit coordinates.
+`expected_topology` can carry the fingerprint from inspection to reject stale
+index-based edits. A stored fingerprint also detects topology changes after a
+managed edit. Matching connectivity cannot prove semantic vertex correspondence
+on symmetrical/reindexed assets; check the resulting deformation.
+
+Static weights use `values` in [0,1], optionally `reset_others=true`. Shared meshes
+need `make_single_user=true` for coordinate/weight/deletion edits. Inspection
+reports key values, mute/mask settings, coordinate digests, changed-vertex counts
+and samples. Samples for non-Basis keys contain changed vertices. Deletion refuses
+Basis, relative-key dependencies and known animation references.
+
 ## Blender to Godot
 
 Use Blender for modeling, materials, UVs, rigging and animation; export selected

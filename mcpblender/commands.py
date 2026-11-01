@@ -514,3 +514,8 @@ COMMANDS.update({
     "shutdown_blender": (Shutdown, ("allow_shutdown_blender",), "Shut down Blender gracefully; save_path or explicit discard_unsaved is required for dirty projects. Stops automatic restart."),
 })
 DOMAIN_COMMANDS.update({"download_asset", "upload_asset", "request_asset_api", "checkpoint", "shutdown_blender"})
+
+from .morph_commands import COMMANDS as MORPH_COMMANDS
+
+COMMANDS.update(MORPH_COMMANDS)
+DOMAIN_COMMANDS.update(MORPH_COMMANDS)

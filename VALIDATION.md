@@ -1,5 +1,15 @@
 # Local validation: 0.2.0
 
+## Shape-key additions
+
+`MCPBLENDER_TEST_BLENDER=1 python3 -m pytest -q tests/test_morph_contracts.py tests/test_shape_keys.py`
+passed **4 tests** on the installed Blender 5.0.1 with Python execution disabled.
+The tests checked sparse Basis-relative/absolute coordinate edits, half-weight
+evaluated positions, non-accumulating offsets, reset/delete, named-key pagination,
+source topology refusal, shared-data isolation and save/reopen. Invalid indices,
+stale fingerprints, nonfinite input and read-only editing were refused. New key
+weights are explicitly zeroed because this Blender build initializes new keys at one.
+
 ## Latest complete regression
 
 On 2026-11-01, FreeBSD Blender 5.0.1:
