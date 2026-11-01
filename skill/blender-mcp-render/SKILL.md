@@ -9,11 +9,19 @@ scope, use `start_blender`. GUI mode supports viewport images; background mode
 supports camera renders. Preserve an existing project's objects and settings unless
 the task calls for changing them.
 
-Use `execute_code` to inspect or edit material nodes, lighting, camera framing,
-color management and renderer settings. `bpy` is available, and structured output
-is assigned to the JSON-compatible `result` variable. Check the returned `success`
-and traceback. Namespace variables do not persist across calls; scene data does.
-Native Blender output may be in the Blender log rather than captured Python stdout.
+Prefer `inspect_resources`, `configure_material`, `assign_material`,
+`configure_light`, `configure_camera` and `configure_render` for supported setup.
+These take a typed `params` object and work with Python execution disabled.
+Set the render aspect before `frame_objects`, which fits an existing camera
+(`name`) to named meshes (`objects`) using a view preset or world direction.
+Check `fully_in_frame`, then judge the rendered image. Fit covers the current
+frame only; refit after aspect or pose changes. Orthographic setup uses
+`configure_camera` with `projection="ORTHO"`.
+
+Use `execute_code`, when permitted, for node graphs, color management or settings
+not yet exposed by structured tools. `bpy` is available; assign structured output
+to `result`, and check `success` and traceback. Namespace variables do not persist
+across calls; scene data does. Native Blender output may be in the Blender log.
 
 Begin with a small preview and suitable sample count, then inspect the actual
 image before committing time to a larger render. `capture_viewport` produces a

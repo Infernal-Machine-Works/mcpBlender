@@ -12,8 +12,29 @@ and key policy. Do not infer a dead process from a busy or timed-out operation.
 Inspect the scene before editing: check objects, names, dimensions, unit scale,
 selection, materials and the current project path with `get_scene_info` and
 `get_object_info`. These tools expose local transforms and object dimensions;
-use `execute_code` for evaluated geometry, manifold checks, world-space measurements,
-UVs, material nodes, rigs and animation details when the request needs them.
+use `inspect_mesh` for base/evaluated geometry, boundary/non-manifold edges,
+world bounds, UV coverage bounds and sampled world vertices at the current frame.
+Compare base and evaluated geometry to distinguish stored topology from modifier
+results. The geometry digest excludes UVs/materials; the checks do not detect
+self-intersection or UV overlap.
+
+Prefer structured tools for the supported pipeline, including when Python
+execution is disabled: `create_primitive` / `create_mesh`, `configure_modifier`,
+`apply_modifier` / `remove_modifier`, `generate_uv`, `duplicate_object`,
+`set_parent`, `apply_transforms`, `configure_material` and `assign_material`.
+Arguments for these tools are inside `params`. Use named resources to avoid
+selection-dependent edits. UV generation requires explicit overwrite for an
+existing map. Independent duplicates are the default; shared mesh edits require
+`make_single_user=true`. Apply transforms before adding dimension-sensitive
+modifiers when appropriate; modifier parameters are not rescaled automatically.
+Operator-based asset tools require Object mode and a visible/selectable target;
+transform baking supports static unconstrained meshes. Inspect partial results
+after an error; these operations do not roll back.
+
+Use `configure_camera` then `frame_objects` to fit named meshes for a preview;
+configure the intended render aspect first and check `fully_in_frame`. Refit after
+pose/aspect changes. Use Python only for functionality the structured tools do
+not yet expose, such as specialized node graphs or rig editing, when policy allows.
 
 `execute_code` runs Python on Blender's main thread. `bpy` is preloaded; assign a
 JSON-compatible value to `result`. Each call has a fresh namespace but shares the
