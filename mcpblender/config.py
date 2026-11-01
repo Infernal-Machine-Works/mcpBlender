@@ -59,6 +59,23 @@ class Storage(Model):
     warn_below_bytes: int = Field(default=2 * 1024**3, ge=0)
 
 
+class Retention(Model):
+    enabled: bool = True
+    min_age_seconds: int = Field(default=3600, ge=0)
+    max_age_seconds: int = Field(default=7 * 86400, ge=0)
+    max_temporary_bytes: int = Field(default=2 * 1024**3, ge=0)
+    history_max_age_seconds: int = Field(default=30 * 86400, ge=0)
+    interval_seconds: int = Field(default=3600, ge=1)
+    batch_files: int = Field(default=1000, ge=1, le=5000)
+    max_scan_files: int = Field(default=20000, ge=1, le=100000)
+
+    @model_validator(mode="after")
+    def ages(self):
+        if self.max_age_seconds < self.min_age_seconds:
+            raise ValueError("Retention max age must be at least min age")
+        return self
+
+
 class Remote(Model):
     host: str = "127.0.0.1"
     port: int | None = Field(default=18081, ge=1, le=65535)
@@ -82,6 +99,7 @@ class Config(Model):
     api_keys: list[APIKey] = Field(default_factory=list)
     asset_sources: dict[str, AssetSource] = Field(default_factory=dict)
     storage: Storage = Field(default_factory=Storage)
+    retention: Retention = Field(default_factory=Retention)
     action_files: list[str] = Field(default_factory=list, max_length=16)
 
     @model_validator(mode="after")

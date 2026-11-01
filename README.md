@@ -75,7 +75,46 @@ process has `MCPBLENDER_BRIDGE_SOCKET` set. An add-on installation is unnecessar
 when starting Blender through the MCP server. Do not enable the installed add-on
 and separately register the checkout's UI module in the same session.
 
-## Named actions and local recipes
+## Temporary outputs and retention
+
+Temporary-output retention is enabled by default for callers with library-write
+permission. After a successful submission, bounded background maintenance runs
+opportunistically, at most once per hour per owner/library (not as a periodic
+service when the server is unused). Defaults retain temporary outputs for seven
+days, keep at least one hour of recent output, and target a 2 GiB temporary-output
+budget. History details expire after 30 days. Configure these under `retention`;
+set `enabled=false` to disable automatic maintenance while keeping preview/manual
+cleanup available.
+
+Only automatically generated render/screenshot/video paths and generated frame
+directories are registered as temporary. Explicit output paths, saved projects,
+exports, unregistered legacy files, recovery checkpoints and logs are excluded.
+Within generated frame directories, only expected frame, manifest and preview
+video filenames are candidates; other files remain. Pins, active/interrupted
+operations, symlinks and files modified after operation completion are protected.
+Structured use of a temporary output as a material/VSE/import/upload input pins
+its output group; that pin stays until explicitly removed. Pin outputs before
+custom Python or external software uses them, because those dependencies cannot
+be inferred. Saved `.blend` files do not automatically reveal external dependencies.
+
+Use `retention_status`, then `preview_retention_cleanup` to inspect candidate files,
+logical bytes, protected groups and history entries. Apply the ten-minute plan
+with `apply_retention_cleanup(plan_id=...)`; permissions, pins, file identity and
+policy are rechecked before deletion. `set_operation_retention(operation_id=...,
+pinned=true)` protects outputs and history, including history for explicit-path
+deliverables. Applying cleanup and pin changes require library-write permission.
+These tools do not start Blender. Scans and deletion batches are bounded; a
+truncated scan reports a lower bound and the budget may remain unmet.
+
+History cleanup drops bulky parameters/results/progress, preserving operation IDs,
+request IDs, digests and final states. `details_pruned=true` means the old result is
+unavailable; reusing its request ID still returns the original operation and never
+re-executes it. SQLite can reuse the freed pages; databases are not automatically
+vacuumed and small request-ID tombstones are retained. Expired artifact metadata
+is removed when its file is missing. Cleanup reports logical bytes deleted and
+fresh filesystem space; filesystem snapshots can retain physical storage.
+
+## Structured shaders and material presets
 
 Structured shader authoring works with Python execution disabled. Use
 `shader_node_catalog` to discover supported node types, installed socket identifiers
@@ -102,6 +141,8 @@ Roughness/metallic maps use their red channel. Existing materials require explic
 replacement. Assign the result using `assign_material`. These presets provide
 Blender shading; arbitrary procedural graphs and glass need target-engine review
 or baking before delivery. The GLB qualification covers the textured PBR preset.
+
+## Named actions and local recipes
 
 The built-in `preview_setup` action accepts `objects` (mesh names), an optional
 fresh `prefix`, `view`, `projection`, `margin` and light `strength`. It creates

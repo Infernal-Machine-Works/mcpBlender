@@ -24,6 +24,7 @@ from pathlib import Path
 from .wire import MAX_MESSAGE, call, check_peer, encode, listen_private, private_directory
 from .network import COMMANDS as NETWORK_COMMANDS, private_summary, transfer
 from .storage import snapshot, require_space
+from .retention import Retention
 
 TERMINAL = {"succeeded", "failed", "cancelled", "interrupted"}
 _PROCESS_CACHE = {}
@@ -85,6 +86,8 @@ class Journal:
             if row[key] is not None:
                 result[key] = json.loads(row[key])
         result["outcome_unknown"] = row["state"] == "interrupted"
+        if row.get("details_pruned"):
+            result["details_pruned"] = True
         if row.get("storage"):
             policy = json.loads(row["storage"])
             initial = policy.pop("estimated_bytes", 0)
@@ -98,6 +101,7 @@ class Broker:
     def __init__(self, path):
         self.path = Path(path)
         self.journal = Journal(self.path.parent / "operations.sqlite3")
+        self.retention = Retention(self.journal)
         previous = self.journal.db.execute("SELECT value FROM metadata WHERE name='worker'").fetchone()
         self.worker = json.loads(previous[0]) if previous else None
         self.epoch = uuid.uuid4().hex
@@ -201,6 +205,20 @@ class Broker:
             raise ValueError("Worker registration required")
 
     def request(self, command, params):
+        if command.startswith("retention_"):
+            owner = params["owner"]
+            if command == "retention_pin":
+                return self.retention.pin(owner, params["operation_id"], params["pinned"])
+            args = owner, params["library_root"], params["policy"]
+            if command == "retention_plan":
+                return self.retention.plan(*args)
+            if command == "retention_apply":
+                return self.retention.apply(*args, params["plan_id"])
+            if command == "retention_maintenance":
+                return self.retention.automatic(*args)
+            if command == "retention_status":
+                return self.retention.status(*args, params.get("offset", 0), params.get("limit", 100))
+            raise ValueError("Unknown retention request")
         with self.journal.lock:
             self.reconcile()
             db = self.journal.db
@@ -259,16 +277,25 @@ class Broker:
                 identifier = uuid.uuid4().hex
                 if params.get("storage"):
                     require_space(**params["storage"])
-                db.execute("INSERT INTO operations (id,owner,request_id,digest,command,params,session_id,state,submitted_at) "
-                           "VALUES (?,?,?,?,?,?,?,'queued',?)",
-                           (identifier, owner, request_id, digest, body["command"],
-                            json.dumps(private_summary(body["params"]) if network else body["params"]),
-                            "network" if network else self.worker["session_id"], time.time()))
-                if network:
-                    db.execute("UPDATE operations SET params=?, state='running', started_at=? WHERE id=?",
-                               (json.dumps(private_summary(body["params"])), time.time(), identifier))
-                if params.get("storage"):
-                    db.execute("UPDATE operations SET storage=? WHERE id=?", (json.dumps(params["storage"]), identifier))
+                db.execute("SAVEPOINT submit_operation")
+                try:
+                    db.execute("INSERT INTO operations (id,owner,request_id,digest,command,params,session_id,state,submitted_at) "
+                               "VALUES (?,?,?,?,?,?,?,'queued',?)",
+                               (identifier, owner, request_id, digest, body["command"],
+                                json.dumps(private_summary(body["params"]) if network else body["params"]),
+                                "network" if network else self.worker["session_id"], time.time()))
+                    if network:
+                        db.execute("UPDATE operations SET params=?, state='running', started_at=? WHERE id=?",
+                                   (json.dumps(private_summary(body["params"])), time.time(), identifier))
+                    if params.get("storage"):
+                        db.execute("UPDATE operations SET storage=? WHERE id=?", (json.dumps(params["storage"]), identifier))
+                    if params.get("library_root"):
+                        self.retention.register(identifier, owner, params["library_root"], body["params"].get("_temporary_outputs", []), params.get("input_paths", []))
+                except Exception:
+                    db.execute("ROLLBACK TO submit_operation")
+                    db.execute("RELEASE submit_operation")
+                    raise
+                db.execute("RELEASE submit_operation")
                 db.commit()
                 if network:
                     runtime = body["params"] | {"_storage_policy": params.get("storage", {})}
@@ -394,6 +421,7 @@ def serve(path):
         finally:
             broker.stop_event.set()
             broker.supervisor.join(timeout=2)
+            broker.retention.close()
             broker.journal.db.close()
             if path.exists() and path.stat().st_ino == inode:
                 path.unlink()

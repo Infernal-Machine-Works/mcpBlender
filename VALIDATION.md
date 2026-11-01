@@ -21,18 +21,41 @@ groups, animated shader graphs, every supported node combination or Godot shader
 On 2026-11-01, FreeBSD Blender 5.0.1:
 
 ```sh
-MCPBLENDER_TEST_BLENDER=1 MCPBLENDER_ACTION_EVIDENCE_DIR=/tmp/mb-actions-resume python3 -m pytest -q --tb=short --maxfail=1
+MCPBLENDER_TEST_BLENDER=1 MCPBLENDER_SHADER_EVIDENCE_DIR=/tmp/mb-shaders-20261101 python3 -m pytest -q --tb=short --maxfail=1
 ```
 
-**72 tests passed in 447.14 seconds**, with the existing host Starlette/AnyIO
+**83 tests passed in 334.08 seconds**, with the existing host Starlette/AnyIO
 deprecation warning. This includes named recipes, all three built-in workflows,
 typed permission/path preflight, real asset/animation delivery, cancellation and
 late-failure restoration, broker restart, application interruption and checkpoint
-recovery without replay. The earlier startup handshake failure described below
+recovery without replay, structured shader authoring/PBR delivery, and scoped
+temporary-output/history retention. The earlier startup handshake failure described below
 was corrected and this complete run passed. The final wheel and add-on archive
 were checked for current workflow/recovery code; the setuptools build-environment
 limitation below still applies. No permanent installation or client configuration
 was performed.
+
+## Retention controls
+
+The complete run covers temporary-output tracking, explicit deliverable protection,
+pins and structured-input protection, active/unknown operation protection, age and
+size thresholds, bounded scans, modified-file refusal and final/ancestor symlink
+replacement. Registration errors leave no queued scene edit. History compaction
+preserves request-ID/digest tombstones; both renders and scene edits remain
+deduplicated after their details are pruned. The real MCP test cleans a generated
+Cycles render without replaying it, and verifies pin/unpin and library-write policy.
+After adding paginated output-group reporting, the focused retention suite passed
+**9 tests in 9.71 seconds**, including a fresh real MCP/Blender run.
+
+Cleanup is limited to new registered generated outputs. It does not sweep legacy
+files, delete explicit output paths, vacuum databases, rotate logs or infer external
+Python/editor dependencies. Unknown filenames inside frame directories remain.
+Automatic maintenance is opportunistic during submissions; age tests use controlled
+local fixtures, not a seven-day soak. Physical reclamation depends on the filesystem.
+The wheel (dependency-check-skipped due to the host setuptools version noted below)
+and add-on archive were checked byte-for-byte for current shader/retention workers.
+All three updated bundled skills passed validation; no permanent installation or
+client configuration was performed.
 
 ## Built-in preview setup
 

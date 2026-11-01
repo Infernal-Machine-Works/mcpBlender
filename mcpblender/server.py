@@ -46,6 +46,8 @@ CAPABILITIES = {
     "capture_viewport": ("allow_snapshots",),
     "render_still": ("allow_snapshots",),
     "get_image": ("allow_snapshots",),
+    "apply_retention_cleanup": ("allow_library_write",),
+    "set_operation_retention": ("allow_library_write",),
 }
 CAPABILITIES.update({name: spec[1] for name, spec in COMMANDS.items()})
 
@@ -119,14 +121,43 @@ class State:
         path = params.get("path") or params.get("directory") or self.policy().library_root
         size, kind = estimate(command, params)
         storage = dict(self.config.storage.model_dump(), path=str(path), estimated_bytes=size, estimate_kind=kind)
-        request = dict(command=command, params=params, owner=self.owner(), request_id=request_id, storage=storage)
+        request = dict(command=command, params=params, owner=self.owner(), request_id=request_id, storage=storage,
+                       library_root=str(Path(self.policy().library_root).expanduser().resolve()), input_paths=self.input_paths(command, params))
         try:
-            return await self.control("submit", **request)
+            operation = await self.control("submit", **request)
         except RuntimeError as exc:
             if "No Blender worker attached" not in str(exc) or not self.config.launch.auto_start or command == "shutdown_blender" or not self.allowed("start_blender"):
                 raise
             await asyncio.to_thread(self.launcher.start)
-            return await self.control("submit", **request)
+            operation = await self.control("submit", **request)
+        if self.config.retention.enabled and self.policy().allow_library_write:
+            try:
+                await self.control("retention_maintenance", **self.retention_args())
+                await asyncio.to_thread(self.artifacts.prune_missing, self.owner())
+            except Exception:
+                logging.getLogger(__name__).warning("Retention maintenance unavailable; the submitted operation remains tracked")
+        return operation
+
+    def retention_args(self):
+        return {"owner": self.owner(), "library_root": str(Path(self.policy().library_root).expanduser().resolve()),
+                "policy": self.config.retention.model_dump()}
+
+    @staticmethod
+    def input_paths(command, params):
+        if command == "run_action":
+            return [path for step in params["steps"] for path in State.input_paths(step["command"], step["params"])]
+        paths = []
+        if command in {"open_blend", "import_asset", "upload_asset"}:
+            paths.append(params["path"])
+        if command == "vse_add_strip":
+            paths.extend(params["paths"])
+        if command == "configure_material" and params.get("image_path"):
+            paths.append(params["image_path"])
+        if command in {"configure_shader_graph", "configure_shader_node"}:
+            paths.extend(n["image_path"] for n in (params["nodes"] if command == "configure_shader_graph" else [params["node"]]) if n.get("image_path"))
+        if command == "apply_material_preset":
+            paths.extend(params[k] for k in ("base_color_texture", "roughness_texture", "metallic_texture", "normal_texture") if params.get(k))
+        return paths
 
     def prepare(self, command, params, request_id=None):
         if command not in COMMANDS:
@@ -135,16 +166,25 @@ class State:
         if command == "run_action":
             return self.compile_action(params["action"], params["inputs"], request_id or uuid.uuid4().hex)
         stable = hashlib.sha256((self.owner() + command + request_id).encode()).hexdigest()[:32] if request_id else uuid.uuid4().hex
+        temporary = []
         if command in ("render_still", "capture_viewport", "render_video"):
+            generated = "path" not in params
             extension = ".mp4" if command == "render_video" else ".png"
             params["path"] = str(self.library_path(params.get("path", f"artifacts/{stable}{extension}"), write=True))
             if Path(params["path"]).suffix.lower() != extension:
                 raise ValueError(f"Output must end in {extension}")
+            if generated:
+                temporary.append({"kind": "file", "path": params["path"]})
         if command in ("render_animation", "render_animation_preview"):
+            generated = "directory" not in params
             params["directory"] = str(self.library_path(params.get("directory", f"artifacts/{stable}"), write=True))
             if command == "render_animation_preview" and params["make_video"]:
                 # The validated sequence directory must remain absent until worker admission.
                 params["path"] = str(Path(params["directory"]) / "preview.mp4")
+            if generated:
+                temporary.append({"kind": "sequence", "path": params["directory"], "frame_start": params["frame_start"],
+                                  "frame_end": params["frame_end"], "frame_step": params["frame_step"],
+                                  "video": command == "render_animation_preview" and params["make_video"]})
         if command in ("open_blend", "import_asset", "save_blend", "export_glb", "export_objects_glb"):
             params["path"] = str(self.library_path(params["path"], write=command in ("save_blend", "export_glb", "export_objects_glb")))
             extension = {"save_blend": ".blend", "open_blend": ".blend", "export_glb": ".glb", "export_objects_glb": ".glb"}.get(command)
@@ -179,6 +219,8 @@ class State:
             params.update(url=url, headers=source.headers, timeout_seconds=source.timeout_seconds, max_bytes=source.max_bytes)
             if command != "request_asset_api":
                 params["path"] = str(self.library_path(params["path"], write=command == "download_asset"))
+        if temporary:
+            params["_temporary_outputs"] = temporary
         return params
 
     def compile_action(self, name, inputs, request_id):
@@ -192,7 +234,8 @@ class State:
             path = params.get("path") or params.get("directory") or self.policy().library_root
             storage = dict(self.config.storage.model_dump(), path=str(path), estimated_bytes=size, estimate_kind=kind)
             steps.append(step | {"params": params, "storage": storage})
-        return plan | {"steps": steps}
+        temporary = [output for step in steps for output in step["params"].get("_temporary_outputs", [])]
+        return plan | {"steps": steps} | ({"_temporary_outputs": temporary} if temporary else {})
 
     async def operation(self, identifier):
         operation = await self.control("get_operation", operation_id=identifier, owner=self.owner())
@@ -217,12 +260,15 @@ class State:
                 kind = {".png": "image", ".glb": "model", ".mp4": "video", ".json": "manifest"}.get(suffix, "file")
                 artifact_id = hashlib.sha256((identifier + result["path"]).encode()).hexdigest()[:32]
                 result = result | self.artifact(result["path"], kind, artifact_id)
+            elif result.get("path"):
+                result = result | {"artifact_missing": True}
             if result.get("frames"):
                 frames = result["frames"]
                 previews = []
                 for path in dict.fromkeys([frames[0], frames[len(frames) // 2], frames[-1]]):
                     artifact_id = hashlib.sha256((identifier + path).encode()).hexdigest()[:32]
-                    previews.append(self.artifact(path, "image", artifact_id))
+                    if Path(path).is_file():
+                        previews.append(self.artifact(path, "image", artifact_id))
                 result["preview_artifacts"] = previews
         return result
 
@@ -234,6 +280,8 @@ class State:
         while True:
             operation = await self.operation(operation["operation_id"])
             if operation["state"] in ("succeeded", "failed", "cancelled", "interrupted"):
+                if operation.get("details_pruned"):
+                    return operation
                 if isinstance(operation.get("result"), dict):
                     return operation["result"] | {"operation_id": operation["operation_id"]}
                 raise RuntimeError(f"Operation {operation['operation_id']} {operation['state']}: {operation.get('error')}")
@@ -278,8 +326,34 @@ def build_server(config: Config):
     server = FastMCP("mcpBlender", version=__version__,
                      instructions="Inspect the scene before editing; prefer named actions and structured tools for supported workflows. "
                      "Inspect geometry and images after changes. Blender is a shared session. "
-                     "A bridge timeout does not cancel execution. start_blender launches explicitly.")
+                     "A bridge timeout does not cancel execution. start_blender launches explicitly. "
+                     "If details_pruned=true, old operation details expired: inspect current state rather than replaying a mutation.")
     server.add_transform(AccessTransform(state))
+
+    @server.tool()
+    async def retention_status(offset: int = 0, limit: int = 100) -> dict:
+        """Report temporary-output retention policy, pins, maintenance state and current free storage. No Blender startup."""
+        result = await state.control("retention_status", **state.retention_args(), offset=offset, limit=limit)
+        return result | {"automatic_enabled_for_policy": config.retention.enabled and state.policy().allow_library_write}
+
+    @server.tool()
+    async def preview_retention_cleanup() -> dict:
+        """Preview expired/over-budget registered temporary files and old history details. Returns a ten-minute plan; explicit paths, pins, active/unknown operations and modified files are protected."""
+        return await state.control("retention_plan", **state.retention_args())
+
+    @server.tool()
+    async def apply_retention_cleanup(plan_id: str) -> dict:
+        """Apply a previewed cleanup plan, rechecking policy, pins and file identity. Keeps request-ID tombstones; never recursively sweeps the library."""
+        state.check("apply_retention_cleanup")
+        result = await state.control("retention_apply", **state.retention_args(), plan_id=plan_id)
+        result["artifact_records_pruned"] = await asyncio.to_thread(state.artifacts.prune_missing, state.owner())
+        return result
+
+    @server.tool()
+    async def set_operation_retention(operation_id: str, pinned: bool = True) -> dict:
+        """Pin/unpin this owner's operation outputs and history. Pin deliverables before custom Python or external tools use temporary files."""
+        state.check("set_operation_retention")
+        return await state.control("retention_pin", owner=state.owner(), operation_id=operation_id, pinned=pinned)
 
     @server.tool()
     async def list_actions() -> dict:
@@ -347,6 +421,8 @@ def build_server(config: Config):
                 if result["state"] in ("failed", "cancelled", "interrupted"):
                     raise RuntimeError(f"Operation {result['operation_id']} {result['state']}: {result.get('error')}")
                 if result["state"] == "succeeded":
+                    if result.get("details_pruned"):
+                        return result
                     return result["result"] | {"operation_id": result["operation_id"]}
                 if time.monotonic() >= deadline:
                     return result
@@ -474,9 +550,8 @@ def build_server(config: Config):
     async def capture_viewport(width: int = 800, height: int = 600) -> dict:
         """Capture a GUI viewport to an artifact. Use get_image to view it; requires GUI Blender."""
         state.check("capture_viewport")
-        target = state.library_path(f"artifacts/{uuid.uuid4().hex}.png", write=True)
-        result = await state.rpc("capture_viewport", path=str(target), width=width, height=height)
-        return result | state.artifact(target)
+        result = await state.rpc("capture_viewport", width=width, height=height)
+        return result | state.artifact(result["path"])
 
     @server.tool()
     async def render_still(width: int = 800, height: int = 600, camera: str | None = None,
@@ -488,8 +563,7 @@ def build_server(config: Config):
         state.check("render_still")
         if not (16 <= width <= 4096 and 16 <= height <= 4096):
             raise ValueError("Image dimensions must be between 16 and 4096")
-        target = state.library_path(f"artifacts/{uuid.uuid4().hex}.png", write=True)
-        return await state.submit("render_still", dict(path=str(target), width=width, height=height,
+        return await state.submit("render_still", dict(width=width, height=height,
                                                  camera=camera, engine=engine))
 
     @server.tool()
@@ -603,7 +677,7 @@ def build_http_app(server, state):
 def addon_zip(destination: Path):
     source = Path(__file__).parent
     with zipfile.ZipFile(destination, "x", zipfile.ZIP_DEFLATED) as archive:
-        for path in [source / "__init__.py", source / "wire.py", source / "broker.py", source / "network.py", source / "storage.py", *sorted((source / "blender").glob("*.py"))]:
+        for path in [source / "__init__.py", source / "wire.py", source / "broker.py", source / "retention.py", source / "network.py", source / "storage.py", *sorted((source / "blender").glob("*.py"))]:
             archive.write(path, str(Path("mcpblender") / path.relative_to(source)))
 
 

@@ -2,6 +2,7 @@
 import json
 import sqlite3
 import threading
+import time
 from collections.abc import MutableMapping
 from pathlib import Path
 
@@ -51,3 +52,14 @@ class Records(MutableMapping):
     def __len__(self):
         with self.lock:
             return self.connect().execute("SELECT count(*) FROM artifacts").fetchone()[0]
+
+    def prune_missing(self, owner):
+        """Drop expired metadata for missing files; never delete the actual file."""
+        with self.lock:
+            db, removed = self.connect(), 0
+            for identifier, value in db.execute("SELECT id,value FROM artifacts").fetchall():
+                record = json.loads(value)
+                if record["owner"] == owner and record.get("expires", 0) < time.time() and not Path(record["path"]).is_file():
+                    removed += db.execute("DELETE FROM artifacts WHERE id=?", (identifier,)).rowcount
+            db.commit()
+            return removed
