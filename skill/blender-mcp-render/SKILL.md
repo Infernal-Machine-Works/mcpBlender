@@ -12,6 +12,13 @@ the task calls for changing them.
 Prefer `inspect_resources`, `configure_material`, `assign_material`,
 `configure_light`, `configure_camera` and `configure_render` for supported setup.
 These take a typed `params` object and work with Python execution disabled.
+For a standard persistent preview stage, discover and plan `preview_setup`, then
+run it with `inputs` containing mesh `objects` and a fresh `prefix`. It fits an
+active camera and creates key/fill/rim area lights around evaluated bounds, leaving
+existing lights and render settings intact. Check the step result's camera fit
+and view the render. `run_action` arguments are direct action/inputs/wait/request_id;
+wait=true returns a full operation record whose state must be checked even when
+the MCP call succeeds. Failed/cancelled actions can have partial edits/files.
 Set the render aspect before `frame_objects`, which fits an existing camera
 (`name`) to named meshes (`objects`) using a view preset or world direction.
 Check `fully_in_frame`, then judge the rendered image. Fit covers the current
@@ -31,6 +38,12 @@ until it succeeds or fails, then call `get_image` with the completed result's
 structured render tool restores temporary resolution, output path, engine, format
 and active camera after completion; intentional lasting look changes belong in
 the scene setup.
+
+For motion previews, `animation_preview` renders PNGs and optional H.264 through a
+temporary VSE scene. It can choose temporary skeletal/morph clips and restores live
+animation/frame/render state. View the returned step result's preview_artifacts;
+inspect partial_output after failure/cancellation. The camera fit covers one frame,
+so allow enough room for the entire motion. Native video encoding is blocking.
 
 Judge framing, silhouette, lighting, surface readability, clipping and the user's
 requested style from the retrieved image. Adjust and render again when needed.

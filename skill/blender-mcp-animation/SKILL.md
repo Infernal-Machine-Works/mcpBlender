@@ -68,6 +68,21 @@ successful key insertion does not prove the motion is right. Save a `.blend`
 project and force a recovery `checkpoint` at useful milestones.
 
 Render a small preview frame sequence before committing to expensive output.
+Prefer the named `animation_preview` action for PNG/video delivery without editing
+the user's sequencer. Discover its schema with `describe_action` and validate with
+`plan_action`. Inputs include frame_start/end, dimensions, camera, directory and
+make_video (default true). Optional clips entries name kind SKELETAL or MORPH,
+target name, clip and optional slot; both kinds can select slots of one combined
+action. Choices restore original assignments, pose/weights, frame/subframe and
+render settings after success, failure or cooperative cancellation. Existing output
+directories are refused; partial files remain. Video requires consecutive frames,
+even dimensions and FFmpeg. Use preview_setup for a persistent camera/light stage
+and leave room for moving geometry; it does not refit across the animation.
+run_action takes direct action/inputs/request_id/wait arguments. Its wait=true
+result is a full operation record: check state, then steps[].result or partial_output.
+Reuse the planned request ID for stable output paths. A timeout is still active
+work. Named actions serialize their steps against other queued operations.
+
 `render_animation` returns immediately by default and reports per-frame progress;
 poll `get_operation`/`wait_operation`, then view its `preview_artifacts` with
 `get_image`. Inspect beginning, middle and end frames. Use a stable request ID for

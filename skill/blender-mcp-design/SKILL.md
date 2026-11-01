@@ -31,7 +31,21 @@ Operator-based asset tools require Object mode and a visible/selectable target;
 transform baking supports static unconstrained meshes. Inspect partial results
 after an error; these operations do not roll back.
 
-Use `configure_camera` then `frame_objects` to fit named meshes for a preview;
+Discover `list_actions` and `describe_action`, then validate a named workflow with
+`plan_action`. `game_asset_prepare` defaults to inspection of `objects` and a
+triangle budget. Request transforms, UV generation or triangulation explicitly;
+optional save/export paths require library-write permission. It preflights all
+targets, but later failures can leave edits. Its edit/export mode supports static
+meshes; use rig/morph tools for animated deformation. Review report issues rather
+than treating completion as engine compatibility. `run_action` takes `action`,
+`inputs`, optional `request_id` and `wait` directly, without a params wrapper.
+With wait=true it returns an operation record even for failure/cancellation: check
+state and inspect each step's result. Reuse the planned request ID for matching
+generated output paths.
+
+Use `preview_setup` for a fresh persistent fitted camera and three asset-relative
+area lights; existing scene lights remain. Choose a fresh prefix. Alternatively,
+use `configure_camera` then `frame_objects` to fit named meshes for a preview;
 configure the intended render aspect first and check `fully_in_frame`. Refit after
 pose/aspect changes. Use Python only for functionality the structured tools do
 not yet expose, such as specialized node graphs, when policy allows. For skeletons
@@ -65,7 +79,9 @@ them. Object counts alone do not validate a model.
 
 For Godot delivery, verify intended units, dimensions, origins, axes, selection,
 material assignments and animation clips. Save the editable `.blend` project and
-export a GLB with `export_glb`. Structured file paths are relative to the active
+export a GLB with `export_glb` or `export_objects_glb` (explicit `objects` inside
+params, restoring selection). Include the rig and meshes for skinned delivery.
+Structured file paths are relative to the active
 `library_root`. Existing project/export files require explicit `overwrite=true`;
 use it when replacement is authorized by the task. `export_glb` exports selected
 objects by default and handles glTF axis conversion. Avoid additional blind axis
@@ -73,8 +89,9 @@ rotations. Verify the exported artifact and, when Godot is available and in scop
 check import there. GLB export is not proof of Godot material, collision or gameplay
 behavior.
 
-The scene is shared across keys and clients. Operations execute serially; group
-dependent edits in one Python operation when they must not interleave. For long
+The scene is shared across keys and clients. Operations execute serially; named
+actions group dependent steps into one operation. Operator-local JSON recipes can
+compose supported structured commands without Python. For long
 work, use `submit_operation` or `execute_code(wait=false)` with a caller-chosen
 `request_id`, then poll `get_operation`. Reusing the same ID and arguments recovers
 the same operation across connections and frontend restarts. Changed arguments
