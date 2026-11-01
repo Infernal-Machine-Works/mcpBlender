@@ -11,6 +11,9 @@ import bpy
 from mcpblender.blender import bridge
 from mcpblender.blender.addon import register
 
+# Session-only setting; never save or overwrite the user's preferences.
+bpy.context.preferences.view.show_splash = False
+
 if os.environ.get("MCPBLENDER_RECOVER"):
     bpy.ops.wm.open_mainfile(filepath=os.environ["MCPBLENDER_RECOVER"], load_ui=False, use_scripts=False)
 register()

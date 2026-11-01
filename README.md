@@ -40,6 +40,7 @@ The MCP server can start Blender through `start_blender`. With
 starts it lazily when its key has startup permission. Set this false for explicit
 startup only. Operation-history and storage queries never require Blender startup. Default startup creates a fresh GUI
 instance with factory settings, auto-execution disabled, and our bridge bootstrapped.
+The bootstrap disables the splash screen for that session without saving user preferences.
 It does not modify Blender preferences or install files into Blender. The GUI has
 an **MCP** sidebar panel with bridge start/stop controls.
 
